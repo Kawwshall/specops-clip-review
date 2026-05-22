@@ -1,0 +1,11 @@
+﻿.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+converted/
+uploads/
+landing/downloads/*.exe
+landing/downloads/*.zip
+.DS_Store

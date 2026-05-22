@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: ClipReview.exe
+            zip: ClipReview-win.exe
+          - os: macos-latest
+            artifact: ClipReview.app
+            zip: ClipReview-mac.zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install imageio-ffmpeg pyinstaller pillow
+
+      - name: Build
+        run: pyinstaller --clean --noconfirm specops.spec
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: copy "dist\ClipReview.exe" "${{ matrix.zip }}"
+        shell: cmd
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r "../${{ matrix.zip }}" ClipReview.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.zip }}
+          path: ${{ matrix.zip }}
+          retention-days: 30

@@ -1,0 +1,6 @@
+[[headers]]
+  for = "/downloads/*.exe"
+  [headers.values]
+    Content-Disposition = "attachment"
+    Content-Type = "application/octet-stream"
+    Cache-Control = "public, max-age=3600"

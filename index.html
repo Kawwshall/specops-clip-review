@@ -1,0 +1,569 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clip Review</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230d0d0d'/><text x='16' y='23' font-family='monospace' font-size='20' font-weight='600' fill='%23ffffff' text-anchor='middle'>S</text></svg>">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d0d0d;
+      --panel: #161616;
+      --card: #1c1c1c;
+      --elevated: #222;
+      --ink: #f0f0f0;
+      --muted: #888;
+      --dim: #555;
+      --line: #2a2a2a;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --accent: #3b82f6;
+      --sans: system-ui, "Helvetica Neue", sans-serif;
+      --mono: "JetBrains Mono", "Menlo", monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font: 13px/1.5 var(--sans); color: var(--ink); background: var(--bg); height: 100vh; display: flex; flex-direction: column; }
+
+    /* ── Top bar ── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; padding: 0 20px; height: 48px;
+      border-bottom: 1px solid var(--line); flex-shrink: 0;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img { height: 16px; }
+    .brand-name { font: 600 12px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
+    .card-status { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+    .status-dot.live { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+    .status-dot.scanning { background: var(--warn); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+    .card-label { color: var(--ink); font-weight: 600; }
+    .card-sub { color: var(--muted); }
+    .manual-toggle { font: 11px/1 var(--sans); color: var(--dim); text-decoration: underline; cursor: pointer; border: 0; background: 0; padding: 0; }
+    .manual-row { display: none; align-items: center; gap: 8px; padding: 8px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    .manual-row.open { display: flex; }
+    .manual-row input { flex: 1; max-width: 320px; height: 30px; padding: 0 8px; background: var(--elevated); border: 1px solid var(--line); color: var(--ink); font: 12px var(--sans); }
+    .btn { height: 30px; padding: 0 14px; border: 1px solid var(--line); background: var(--elevated); color: var(--ink); font: 11px/1 var(--sans); letter-spacing: .04em; text-transform: uppercase; cursor: pointer; white-space: nowrap; }
+    .btn:hover { background: #2a2a2a; }
+    .btn.primary { border-color: var(--ink); background: var(--ink); color: #000; }
+
+    /* ── Summary bar ── */
+    .summary-bar {
+      display: none; align-items: center; gap: 28px; padding: 10px 20px;
+      border-bottom: 1px solid var(--line); flex-shrink: 0; overflow-x: auto;
+    }
+    .summary-bar.visible { display: flex; }
+    .stat { display: flex; flex-direction: column; gap: 2px; }
+    .stat-label { font: 400 9px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .stat-value { font: 700 16px/1 var(--sans); letter-spacing: -.03em; }
+    .stat-value.ok { color: var(--ok); }
+    .stat-value.warn { color: var(--warn); }
+    .stat-value.bad { color: var(--bad); }
+
+
+    /* ── Main layout ── */
+    .main { flex: 1; display: grid; grid-template-columns: minmax(0,1fr) 280px; min-height: 0; }
+
+    /* ── Idle / waiting state ── */
+    .idle-state { display: none; grid-column: 1/-1; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
+    .idle-state.visible { display: flex; }
+    .idle-icon { font-size: 40px; opacity: .2; }
+    .idle-title { font: 600 16px/1 var(--sans); color: var(--muted); letter-spacing: -.02em; }
+    .idle-sub { font: 400 12px/1 var(--sans); color: var(--dim); }
+
+    /* ── Clip list ── */
+    .clips-pane { border-left: 1px solid var(--line); overflow-y: auto; }
+    .clips-pane.hidden { display: none; }
+    .day-group { padding: 6px 12px 2px; font: 500 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
+    .clip-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; border-bottom: 1px solid #1a1a1a; }
+    .clip-item:hover { background: var(--card); }
+    .clip-item.active { background: #1e293b; border-left: 2px solid var(--accent); }
+    .clip-time { font: 600 13px/1 var(--mono); color: var(--ink); min-width: 42px; }
+    .clip-dur  { font: 400 11px/1 var(--sans); color: var(--muted); }
+    .clip-name { font: 400 10px/1 var(--mono); color: var(--dim); margin-left: auto; }
+    .act-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--dim); }
+    .act-dot.good    { background: var(--ok); }
+    .act-dot.bad     { background: var(--dim); }
+    .act-dot.pending { background: var(--dim); animation: pulse 1.5s infinite; }
+
+    /* ── Player pane ── */
+    .player-pane { display: flex; flex-direction: column; min-height: 0; }
+    .player-pane.hidden { display: none; }
+    .video-wrap { flex: 1; background: #000; position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; }
+    #vid { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+    .player-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; }
+    .player-placeholder.hidden { display: none; }
+    .placeholder-text { font: 400 11px/1 var(--sans); color: var(--dim); }
+    .converting-spinner { width: 24px; height: 24px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .player-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); flex-shrink: 0; }
+    .player-bar input[type=range] { flex: 1; height: 3px; accent-color: var(--accent); }
+    .ptime { font: 12px/1 var(--mono); color: var(--muted); min-width: 90px; text-align: right; white-space: nowrap; }
+    .pbtn { width: 32px; height: 32px; border: 1px solid var(--line); background: var(--elevated); color: var(--ink); font: 11px/1 var(--sans); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .pbtn:hover { background: var(--card); }
+    .pbtn.big { width: 48px; background: var(--ink); color: #000; border-color: var(--ink); font-weight: 700; }
+    .pbtn.big:hover { opacity: .9; }
+    .fullbtn { margin-left: auto; }
+
+    /* ── Status strip ── */
+    .statusbar { padding: 4px 20px; font: 11px/1 var(--sans); color: var(--dim); border-top: 1px solid var(--line); flex-shrink: 0; }
+    .statusbar.ok   { color: var(--ok); }
+    .statusbar.warn { color: var(--warn); }
+  </style>
+</head>
+<body>
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <img src="/spec-ops-logo.png" alt="">
+      <span class="brand-name">Clip Review</span>
+    </div>
+    <div class="card-status" id="cardStatus">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="cardLabel" class="card-sub">Waiting for card…</span>
+    </div>
+    <button class="manual-toggle" id="manualToggle">manual path</button>
+  </div>
+
+  <!-- Manual path (hidden by default) -->
+  <div class="manual-row" id="manualRow">
+    <input id="manualPath" type="text" placeholder="F:\recordings">
+    <button class="btn" id="manualScan">Scan</button>
+  </div>
+
+  <!-- Summary bar -->
+  <div class="summary-bar" id="summaryBar"></div>
+
+
+  <!-- Main content -->
+  <div class="main" id="mainArea">
+
+    <!-- Idle state -->
+    <div class="idle-state visible" id="idleState">
+      <div class="idle-icon">💾</div>
+      <div class="idle-title">Insert ZEDREC card</div>
+      <div class="idle-sub">Card will be detected automatically</div>
+    </div>
+
+    <!-- Player (hidden until clip selected) -->
+    <div class="player-pane hidden" id="playerPane">
+      <div class="video-wrap">
+        <video id="vid" playsinline preload="metadata"></video>
+        <div class="player-placeholder" id="playerPlaceholder">
+          <div class="placeholder-text" id="placeholderText">Select a clip</div>
+        </div>
+      </div>
+      <div class="player-bar">
+        <button class="pbtn big" id="pbPlay">▶</button>
+        <button class="pbtn" id="pbBack">−10</button>
+        <input type="range" id="pbSeek" min="0" max="1000" value="0">
+        <span class="ptime" id="pbTime">0:00 / 0:00</span>
+        <button class="pbtn" id="pbFwd">+10</button>
+        <button class="pbtn fullbtn" id="pbFull">⛶</button>
+      </div>
+    </div>
+
+    <!-- Clips pane (hidden until scan) -->
+    <div class="clips-pane hidden" id="clipsPane"></div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="statusbar" id="statusBar">Starting…</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const els = {
+    statusDot: $('statusDot'), cardLabel: $('cardLabel'),
+    manualToggle: $('manualToggle'), manualRow: $('manualRow'),
+    manualPath: $('manualPath'), manualScan: $('manualScan'),
+    summaryBar: $('summaryBar'),
+    idleState: $('idleState'),
+    playerPane: $('playerPane'), playerPlaceholder: $('playerPlaceholder'),
+    placeholderText: $('placeholderText'),
+    vid: $('vid'), pbPlay: $('pbPlay'), pbBack: $('pbBack'),
+    pbSeek: $('pbSeek'), pbTime: $('pbTime'), pbFwd: $('pbFwd'), pbFull: $('pbFull'),
+    clipsPane: $('clipsPane'), statusBar: $('statusBar'),
+  };
+
+  const state = {
+    root: '',
+    items: [],
+    activeItem: null,
+    converting: false,
+    convertAbort: null,
+    scores: new Map(),   // relativePath -> {score, frames}
+  };
+
+  // IMU-based: stddev of |linear_accel| × 12.5 → 0–100
+  // stddev > 2 m/s² (score 25) = clearly active; < 0.64 m/s² (score 8) = idle/stationary
+  const SCORE_ACTIVE = 25;
+  const SCORE_MOTION = 3;  // head-mount IMU: close tasks (dishes, prep) sit around 3-8, truly static <3
+
+  // ── Status helpers ────────────────────────────────────────────────────────
+
+  function setStatus(msg, kind = '') {
+    els.statusBar.textContent = msg;
+    els.statusBar.className = `statusbar ${kind}`;
+  }
+
+  // ── Auto-detect card ──────────────────────────────────────────────────────
+
+  let lastDetectedPath = null;
+
+  async function pollDetect() {
+    try {
+      const res = await fetch('/api/auto-detect', { cache: 'no-store' });
+      const { results } = await res.json();
+      if (results && results.length > 0) {
+        const r = results[0];
+        if (r.path !== lastDetectedPath) {
+          lastDetectedPath = r.path;
+          els.statusDot.className = 'status-dot scanning';
+          els.cardLabel.innerHTML = `<span class="card-label">${r.label}</span> <span class="card-sub">— scanning…</span>`;
+          setStatus(`Detected ${r.label} — scanning ${r.mcap_count} clips…`);
+          await scanPath(r.path);
+        }
+      } else {
+        // Card removed
+        if (lastDetectedPath) {
+          lastDetectedPath = null;
+          state.root = '';
+          state.items = [];
+          state.scores.clear();
+          // Wipe converted files from disk immediately
+          fetch('/api/clear-cache', { cache: 'no-store' }).catch(() => {});
+          els.statusDot.className = 'status-dot';
+          els.cardLabel.textContent = 'Waiting for card…';
+          els.cardLabel.className = 'card-sub';
+          els.summaryBar.classList.remove('visible');
+          els.idleState.classList.add('visible');
+          els.playerPane.classList.add('hidden');
+          els.clipsPane.classList.add('hidden');
+          setStatus('Card removed . converted files cleared .');
+        }
+      }
+    } catch {
+      // server not ready yet
+    }
+  }
+
+  setInterval(pollDetect, 2000);
+  pollDetect();
+
+  // ── Scan a path ───────────────────────────────────────────────────────────
+
+  async function scanPath(root) {
+    state.root = root;
+    try {
+      const res = await fetch(`/api/list-recordings?root=${encodeURIComponent(root)}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      state.items = (data.items || []).sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+      renderAll(state.items, data.root || root);
+      els.statusDot.className = 'status-dot live';
+      const det = state.items[0] && state.items[0].startMs
+        ? new Date(state.items[0].startMs).toLocaleDateString()
+        : '';
+      els.cardLabel.innerHTML = `<span class="card-label">${(data.root || root).split('\\').filter(Boolean).pop() || root}</span>` +
+        (det ? ` <span class="card-sub">. ${state.items.length} clips, ${det}</span>` : ` <span class="card-sub">. ${state.items.length} clips</span>`);
+      setStatus(`${state.items.length} clips loaded.`, 'ok');
+    } catch (e) {
+      setStatus(e.message, 'warn');
+    }
+  }
+
+  // ── Render everything after scan ─────────────────────────────────────────
+
+  function renderAll(items, rootLabel) {
+    state.scores.clear();
+    const { coverage, dayData } = computeCoverage(items);
+    renderSummary(items, coverage, dayData);
+    renderClips(items);
+    fetchActivityScores(items);
+    els.idleState.classList.remove('visible');
+    els.playerPane.classList.remove('hidden');
+    els.clipsPane.classList.remove('hidden');
+  }
+
+  // ── Coverage computation ──────────────────────────────────────────────────
+
+  function computeCoverage(items) {
+    const coverage = new Map();   // "YYYY-MM-DD:H" → seconds
+    const dayData  = new Map();   // "YYYY-MM-DD"   → {firstH, lastH}
+    for (const item of items) {
+      if (!item.startMs || !item.endMs) continue;
+      let cur = Math.floor(item.startMs / 3600000) * 3600000;
+      while (cur < item.endMs) {
+        const next = cur + 3600000;
+        const overlap = (Math.min(next, item.endMs) - Math.max(cur, item.startMs)) / 1000;
+        if (overlap > 0) {
+          const d = new Date(cur);
+          const ymd = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+          const h   = d.getHours();
+          coverage.set(`${ymd}:${h}`, (coverage.get(`${ymd}:${h}`) || 0) + overlap);
+          const day = dayData.get(ymd) || { firstH: 24, lastH: -1 };
+          day.firstH = Math.min(day.firstH, h); day.lastH = Math.max(day.lastH, h);
+          dayData.set(ymd, day);
+        }
+        cur = next;
+      }
+    }
+    return { coverage, dayData };
+  }
+
+  // ── Summary bar ───────────────────────────────────────────────────────────
+
+  function renderSummary(items, coverage, dayData) {
+    const totalS = items.reduce((s, i) => s + (i.durationS || 0), 0);
+    els.summaryBar.innerHTML =
+      stat('Total', fmtDur(totalS), '') +
+      `<div class="stat" id="statGood"><div class="stat-label">Good data</div><div class="stat-value" id="statGoodVal">...</div></div>` +
+      `<div class="stat" id="statBad"><div class="stat-label">Bad data</div><div class="stat-value" id="statBadVal">...</div></div>`;
+    els.summaryBar.classList.add('visible');
+  }
+
+  function updateSummaryActivity() {
+    let goodS = 0, badS = 0;
+    for (const item of state.items) {
+      const sc = state.scores.get(item.relativePath);
+      const dur = item.durationS || 180;
+      if (!sc) continue;
+      if (sc.score >= 0 && sc.score < SCORE_MOTION) badS += dur;
+      else goodS += dur;
+    }
+    const fmt = s => {
+      if (s === 0) return '0 min';
+      const m = Math.round(s / 60);
+      return m < 60 ? `${m} min` : `${Math.floor(m/60)}h ${m%60}m`;
+    };
+    const gv = document.getElementById('statGoodVal');
+    const bv = document.getElementById('statBadVal');
+    if (gv) { gv.textContent = fmt(goodS); gv.className = 'stat-value ok'; }
+    if (bv) { bv.textContent = fmt(badS);  bv.className = 'stat-value' + (badS > 0 ? ' warn' : ''); }
+  }
+
+  function stat(label, value, cls) {
+    return `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value ${cls}">${value}</div></div>`;
+  }
+
+  // ── Background activity scoring ──────────────────────────────────────────
+
+  async function fetchActivityScores(items) {
+
+    for (const item of items) {
+      if (!state.scores.has(item.relativePath)) {
+        // Mark dot as pending
+        const dot = document.querySelector(`.act-dot[data-act="${CSS.escape(item.relativePath)}"]`);
+        if (dot) { dot.className = 'act-dot pending'; dot.title = 'Checking activity…'; }
+      }
+    }
+
+    for (const item of items) {
+      // Small delay between requests so server isn't overwhelmed
+      await new Promise(r => setTimeout(r, 80));
+      try {
+        const res = await fetch(`/api/activity?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}`, { cache: 'no-store' });
+        const data = await res.json();
+        state.scores.set(item.relativePath, data);
+
+        // Update dot on this clip row
+        const dot = document.querySelector(`.act-dot[data-act="${CSS.escape(item.relativePath)}"]`);
+        if (dot) {
+          const s = data.score;
+          if (s < 0) { dot.className = 'act-dot bad'; dot.title = 'IMU data unavailable'; }
+          else if (s < SCORE_MOTION) { dot.className = 'act-dot bad'; dot.title = 'Bad data . idle footage'; }
+          else { dot.className = 'act-dot good'; dot.title = 'Good data . operator active'; }
+        }
+
+        updateSummaryActivity();
+      } catch { /* skip failed score */ }
+    }
+    setStatus(`${items.length} clips loaded . scoring activity...`, 'ok');
+  }
+
+  // ── Clips list ────────────────────────────────────────────────────────────
+
+  function renderClips(items) {
+    els.clipsPane.replaceChildren();
+    let lastDay = null;
+    for (const item of items) {
+      const d = item.startMs ? new Date(item.startMs) : null;
+      const ymd = d ? `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` : null;
+      if (ymd && ymd !== lastDay) {
+        const sep = document.createElement('div');
+        sep.className = 'day-group';
+        sep.textContent = d.toLocaleDateString(undefined, { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+        els.clipsPane.appendChild(sep);
+        lastDay = ymd;
+      }
+      const row = document.createElement('div');
+      row.className = 'clip-item';
+      const timeStr = d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '--:--';
+      const durStr  = item.durationS ? fmtDur(item.durationS) : item.size ? fmtBytes(item.size) : '';
+      row.innerHTML = `<span class="clip-time">${timeStr}</span><span class="clip-dur">${durStr}</span><span class="clip-name">${item.name}</span><span class="act-dot pending" data-act="${item.relativePath}" title="Checking activity…"></span>`;
+      row.addEventListener('click', () => selectClip(item, row));
+      item._row = row;
+      els.clipsPane.appendChild(row);
+    }
+  }
+
+  // ── Clip selection + auto-convert ────────────────────────────────────────
+
+  async function selectClip(item, row) {
+    if (state.activeItem?._row) state.activeItem._row.classList.remove('active');
+    row.classList.add('active');
+    state.activeItem = item;
+
+    // Reset player
+    els.vid.pause();
+    els.vid.removeAttribute('src');
+    els.vid.removeAttribute('poster');
+    showPlaceholder('Inspecting clip…');
+
+    try {
+      // Inspect to get video topics
+      const res = await fetch(`/api/inspect-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}`, { cache: 'no-store' });
+      const info = await res.json();
+      if (info.error) throw new Error(info.error);
+
+      const topic = info.topics?.find(t => t.topic.includes('left') || t.topic.includes('image')) || info.topics?.[0];
+      if (!topic) throw new Error('No video topics found in this clip');
+
+      // Start conversion automatically
+      showPlaceholder('Preparing video…', true);
+      setStatus(`Converting ${item.name}…`);
+
+      const convRes = await fetch(`/api/convert-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}&topic=${encodeURIComponent(topic.topic)}&mode=fast`, { method: 'POST' });
+      const conv = await convRes.json();
+      if (conv.error) {
+        // Fast failed (H.265) . trying compat
+        showPlaceholder('Re-encoding for browser…', true);
+        setStatus(`Re-encoding ${item.name} (H.264 compat)…`);
+        const convRes2 = await fetch(`/api/convert-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}&topic=${encodeURIComponent(topic.topic)}&mode=compat`, { method: 'POST' });
+        const conv2 = await convRes2.json();
+        if (conv2.error) throw new Error(conv2.error);
+        await loadVideo(conv2);
+      } else {
+        await loadVideo(conv);
+      }
+      setStatus(`Playing ${item.name}`, 'ok');
+    } catch (e) {
+      showPlaceholder(e.message);
+      setStatus(e.message, 'warn');
+    }
+  }
+
+  async function loadVideo(conv) {
+    hidePlaceholder();
+    if (conv.poster) els.vid.poster = conv.poster;
+    els.vid.src = conv.url;
+    els.vid.onloadedmetadata = syncSeek;
+    try { await els.vid.play(); } catch { /* autoplay blocked . user taps play */ }
+  }
+
+  function showPlaceholder(msg, spinner = false) {
+    els.placeholderText.textContent = msg;
+    const s = els.playerPlaceholder.querySelector('.converting-spinner');
+    if (spinner && !s) {
+      const sp = document.createElement('div'); sp.className = 'converting-spinner';
+      els.playerPlaceholder.prepend(sp);
+    } else if (!spinner && s) {
+      s.remove();
+    }
+    els.playerPlaceholder.classList.remove('hidden');
+  }
+
+  function hidePlaceholder() {
+    const s = els.playerPlaceholder.querySelector('.converting-spinner');
+    if (s) s.remove();
+    els.playerPlaceholder.classList.add('hidden');
+  }
+
+  // ── Video controls ────────────────────────────────────────────────────────
+
+  function syncSeek() {
+    const dur = els.vid.duration || 0;
+    const cur = els.vid.currentTime || 0;
+    els.pbSeek.value = dur ? Math.round((cur / dur) * 1000) : 0;
+    els.pbTime.textContent = `${fmtClock(cur)} / ${fmtClock(dur)}`;
+    els.pbPlay.textContent = els.vid.paused ? '▶' : '⏸';
+  }
+
+  els.pbPlay.addEventListener('click', () => {
+    if (!els.vid.src) return;
+    els.vid.paused ? els.vid.play() : els.vid.pause();
+  });
+  els.pbBack.addEventListener('click', () => { els.vid.currentTime = Math.max(0, els.vid.currentTime - 10); });
+  els.pbFwd.addEventListener('click', () => { els.vid.currentTime = Math.min(els.vid.duration || 0, els.vid.currentTime + 10); });
+  els.pbSeek.addEventListener('input', () => {
+    if (els.vid.duration) els.vid.currentTime = (els.pbSeek.value / 1000) * els.vid.duration;
+  });
+  els.pbFull.addEventListener('click', () => {
+    document.fullscreenElement ? document.exitFullscreen() : els.vid.requestFullscreen?.();
+  });
+  els.vid.addEventListener('timeupdate', syncSeek);
+  els.vid.addEventListener('pause', syncSeek);
+  els.vid.addEventListener('play', syncSeek);
+  els.vid.addEventListener('ended', syncSeek);
+  els.vid.addEventListener('error', () => {
+    showPlaceholder('Browser cannot play H.265 directly . re-encoding…', true);
+    setStatus('Re-encoding with H.264 compat…');
+    if (state.activeItem) {
+      // Retry with compat mode
+      const item = state.activeItem;
+      fetch(`/api/inspect-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}`, { cache: 'no-store' })
+        .then(r => r.json())
+        .then(info => {
+          const topic = info.topics?.find(t => t.topic.includes('left') || t.topic.includes('image')) || info.topics?.[0];
+          if (!topic) throw new Error('no topic');
+          return fetch(`/api/convert-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}&topic=${encodeURIComponent(topic.topic)}&mode=compat`, { method: 'POST' });
+        })
+        .then(r => r.json())
+        .then(conv => { if (conv.error) throw new Error(conv.error); return loadVideo(conv); })
+        .then(() => setStatus(`Playing ${item.name} (H.264)`, 'ok'))
+        .catch(e => { showPlaceholder(e.message); setStatus(e.message, 'warn'); });
+    }
+  });
+
+  // ── Manual path fallback ──────────────────────────────────────────────────
+
+  els.manualToggle.addEventListener('click', () => els.manualRow.classList.toggle('open'));
+  els.manualScan.addEventListener('click', () => {
+    const p = els.manualPath.value.trim();
+    if (p) { lastDetectedPath = p; scanPath(p); els.manualRow.classList.remove('open'); }
+  });
+  els.manualPath.addEventListener('keydown', e => {
+    if (e.key === 'Enter') els.manualScan.click();
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  function fmtDur(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+    if (h) return `${h}h ${pad(m)}m`;
+    if (m) return `${m}m ${pad(sec)}s`;
+    return `${sec}s`;
+  }
+
+  function fmtClock(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+  }
+
+  function fmtBytes(b) {
+    if (!b) return '';
+    const u = ['B','KB','MB','GB'], i = Math.min(3, Math.floor(Math.log(b) / Math.log(1024)));
+    return `${(b / 1024**i).toFixed(i ? 1 : 0)} ${u[i]}`;
+  }
+
+  setStatus('Ready . insert card or use manual path');
+</script>
+</body>
+</html>
