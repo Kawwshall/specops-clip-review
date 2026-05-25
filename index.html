@@ -564,6 +564,32 @@
   }
 
   setStatus('Ready . insert card or use manual path');
+
+  // ── App Translocation warning ─────────────────────────────────────────────
+  // macOS runs the app from a randomised temp path if it hasn't been moved to
+  // /Applications. This breaks path resolution for large MCAP files.
+  (async () => {
+    try {
+      const h = await fetch('/api/health', { cache: 'no-store' });
+      const { translocated } = await h.json();
+      if (translocated) {
+        const banner = document.createElement('div');
+        banner.style.cssText = [
+          'position:fixed','top:0','left:0','right:0','z-index:9999',
+          'background:#f59e0b','color:#000','font-size:12px',
+          'font-family:monospace','padding:8px 16px',
+          'display:flex','align-items:center','gap:12px'
+        ].join(';');
+        banner.innerHTML = `
+          <strong>⚠ Move app to Applications</strong>
+          <span>ClipReview is running from your Downloads folder. macOS is blocking file access.
+          Drag <strong>ClipReview.app</strong> to <strong>/Applications</strong> and relaunch.</span>
+          <button onclick="this.parentNode.remove()" style="margin-left:auto;background:none;border:1px solid #000;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px">✕</button>
+        `;
+        document.body.prepend(banner);
+      }
+    } catch (_) {}
+  })();
 </script>
 </body>
 </html>

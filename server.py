@@ -164,6 +164,13 @@ def inspect_local_mcap(relative_path: str, root_path: str = ""):
         "topics": topics,
     }
 
+def _is_translocated():
+    """True when macOS App Translocation is active (app not moved to /Applications)."""
+    try:
+        return 'AppTranslocation' in str(Path(sys.executable).resolve())
+    except OSError:
+        return False
+
 def find_recording(relative_path: str, root_path: str = ""):
     cleaned = relative_path.replace('\\', '/').lstrip('/'); name = Path(cleaned).name
     candidates = []
@@ -171,7 +178,12 @@ def find_recording(relative_path: str, root_path: str = ""):
     if root:
         candidates.append(root / cleaned)
     candidates.extend([ROOT / cleaned, ROOT.parent / cleaned, ROOT.parent.parent / cleaned, Path.home() / cleaned, Path.home() / 'Documents' / cleaned])
-    candidates.extend(ROOT.parent.glob(f'**/{name}'))
+    # Glob inside ROOT.parent can raise ERANGE under macOS App Translocation — skip safely
+    if not _is_translocated():
+        try:
+            candidates.extend(ROOT.parent.glob(f'**/{name}'))
+        except OSError:
+            pass
     for p in candidates:
         try: r = p.resolve()
         except OSError: continue
@@ -475,7 +487,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = urllib.parse.unquote(parsed.path)
-        if path == '/api/health': return self.send_json({'ok': True, 'service': 'mcap-video-helper'})
+        if path == '/api/health': return self.send_json({'ok': True, 'service': 'mcap-video-helper', 'translocated': _is_translocated()})
         if path == '/api/clear-cache':
             count = 0
             for f in CACHE.iterdir():
