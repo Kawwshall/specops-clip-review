@@ -38,11 +38,18 @@ jobs:
         run: copy "dist\ClipReview.exe" "${{ matrix.zip }}"
         shell: cmd
 
-      - name: Package (macOS)
+      - name: Sign (macOS, ad-hoc + hardened runtime)
         if: runner.os == 'macOS'
         run: |
-          cd dist
-          zip -r "../${{ matrix.zip }}" ClipReview.app
+          codesign --deep --force --sign - \
+            --options runtime \
+            --entitlements entitlements.plist \
+            dist/ClipReview.app
+          codesign --verify --deep --strict dist/ClipReview.app
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/ClipReview.app "${{ matrix.zip }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
