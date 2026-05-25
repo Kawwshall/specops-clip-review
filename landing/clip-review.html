@@ -273,19 +273,64 @@
         <div class="dl-card">
           <div class="dl-platform">Platform</div>
           <div class="dl-name">macOS</div>
-          <div class="dl-meta">Apple Silicon + Intel · .app</div>
+          <div class="dl-meta">Apple Silicon + Intel · .app bundle</div>
           <div class="dl-status">
             <span class="dl-status-label">Status</span>
-            <span class="dl-status-val soon">Coming soon</span>
+            <span class="dl-status-val ready">Ready</span>
           </div>
-          <button class="btn" disabled>Coming soon</button>
+          <a href="downloads/ClipReview-mac.zip" class="btn btn-primary" download>Download .zip</a>
         </div>
 
       </div>
     </div>
   </section>
 
-  <!-- Steps -->
+  <!-- Steps macOS -->
+  <section class="section">
+    <div class="container">
+      <p class="sec">how to use . macOS</p>
+      <div class="steps-list">
+        <div class="step-row">
+          <span class="step-n">01</span>
+          <div>
+            <div class="step-title">Download and install</div>
+            <div class="step-desc">Download <code>ClipReview-mac.zip</code> . double-click to unzip . drag <code>ClipReview.app</code> to your Applications folder .</div>
+            <div class="step-note">If macOS says "unverified developer" . right-click the app → Open → Open . or run in Terminal: <code>xattr -rd com.apple.quarantine /Applications/ClipReview.app</code></div>
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-n">02</span>
+          <div>
+            <div class="step-title">Double-click and go</div>
+            <div class="step-desc">Double-click <code>ClipReview.app</code> . browser opens automatically . a Desktop shortcut is created for next time .</div>
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-n">03</span>
+          <div>
+            <div class="step-title">Insert the ZEDREC card</div>
+            <div class="step-desc">Plug in the card reader with the ZEDREC SD card . the volume appears in the Drive Selector dropdown automatically .</div>
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-n">04</span>
+          <div>
+            <div class="step-title">Select drive and review</div>
+            <div class="step-desc">Pick the ZEDREC volume . all clips load . check active and idle hours in the summary bar . click any clip to play it .</div>
+          </div>
+        </div>
+        <div class="step-row">
+          <span class="step-n">05</span>
+          <div>
+            <div class="step-title">Submit handover</div>
+            <div class="step-desc">Once reviewed go to <a href="https://spec-ops.best/" target="_blank" style="color:var(--text2);text-decoration:underline">spec-ops.best</a> to submit your shift handover .</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Steps Windows -->
   <section class="section">
     <div class="container">
       <p class="sec">how to use . Windows</p>
@@ -357,7 +402,7 @@
         </div>
         <div class="reads-card">
           <div class="reads-label">No install</div>
-          <div class="reads-desc">FFmpeg and the server are bundled inside the .exe . drag out , run , done .</div>
+          <div class="reads-desc">FFmpeg and the server are fully bundled . Windows: drag out the .exe and run . macOS: drag .app to Applications and double-click .</div>
         </div>
       </div>
     </div>
@@ -368,9 +413,9 @@
     <div class="container">
       <p class="sec">requirements</p>
       <div class="req-list">
-        <div class="req-row"><span class="req-check">✓</span><span class="req-text">Windows 10 or 11 (64-bit)</span></div>
+        <div class="req-row"><span class="req-check">✓</span><span class="req-text">Windows 10 or 11 (64-bit) · or · macOS 12 Monterey or later (Apple Silicon + Intel)</span></div>
         <div class="req-row"><span class="req-check">✓</span><span class="req-text">ZEDREC SD card with MCAP recordings</span></div>
-        <div class="req-row"><span class="req-check">✓</span><span class="req-text">Chrome, Edge, or Firefox</span></div>
+        <div class="req-row"><span class="req-check">✓</span><span class="req-text">Chrome, Edge, Firefox, or Safari</span></div>
         <div class="req-row"><span class="req-check">✓</span><span class="req-text">~200 MB free disk space for converted clip cache</span></div>
       </div>
     </div>
