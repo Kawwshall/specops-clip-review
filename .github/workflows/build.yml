@@ -1,4 +1,4 @@
-name: Build
+name: Build and Release
 
 on:
   push:
@@ -6,20 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            artifact: ClipReview.exe
-            zip: ClipReview-win.exe
-          - os: macos-latest
-            artifact: ClipReview.app
-            zip: ClipReview-mac.zip
-
-    runs-on: ${{ matrix.os }}
-
+  # ── Windows: PyInstaller single .exe ──────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -33,27 +22,50 @@ jobs:
       - name: Build
         run: pyinstaller --clean --noconfirm specops.spec
 
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        run: copy "dist\ClipReview.exe" "${{ matrix.zip }}"
+      - name: Package
         shell: cmd
-
-      - name: Sign (macOS, ad-hoc + hardened runtime)
-        if: runner.os == 'macOS'
-        run: |
-          codesign --deep --force --sign - \
-            --options runtime \
-            --entitlements entitlements.plist \
-            dist/ClipReview.app
-          codesign --verify --deep --strict dist/ClipReview.app
-
-      - name: Package (macOS)
-        if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent dist/ClipReview.app "${{ matrix.zip }}"
+        run: copy "dist\ClipReview.exe" "SPEC-OPS-Clip-Review-win.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.zip }}
-          path: ${{ matrix.zip }}
-          retention-days: 30
+          name: win-exe
+          path: SPEC-OPS-Clip-Review-win.exe
+
+  # ── macOS: shell-script .app bundle inside DMG ────────────────────────────
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build DMG
+        run: bash build-mac.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: ClipReview-mac.dmg
+
+  # ── Publish: update the rolling "latest" GitHub Release ───────────────────
+  release:
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Publish to GitHub Releases (latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest build"
+          body: "Auto-built from the latest commit on main."
+          prerelease: false
+          files: |
+            SPEC-OPS-Clip-Review-win.exe
+            ClipReview-mac.dmg
