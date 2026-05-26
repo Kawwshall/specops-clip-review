@@ -125,27 +125,11 @@
       border: 1px solid var(--border);
       padding: 20px;
     }
-    .dl-platform {
-      font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-      color: var(--text3); margin-bottom: 8px;
-    }
     .dl-name {
       font-family: var(--mono); font-size: 16px; font-weight: 500;
       letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px;
     }
     .dl-meta { font-size: 11px; color: var(--text3); margin-bottom: 20px; }
-    .dl-status { display: flex; flex-direction: column; gap: 2px; margin-bottom: 16px; }
-    .dl-status-label {
-      font-size: 10px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase; color: var(--text2);
-    }
-    .dl-status-val {
-      font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-    }
-    .dl-status-val.ready { color: var(--positive); }
-    .dl-status-val.soon  { color: var(--warning); }
 
     /* ── Steps ── */
     .steps-list {
@@ -260,24 +244,14 @@
       <div class="dl-grid">
 
         <div class="dl-card">
-          <div class="dl-platform">Platform</div>
           <div class="dl-name">Windows</div>
           <div class="dl-meta">x64 · single .exe · 38 MB</div>
-          <div class="dl-status">
-            <span class="dl-status-label">Status</span>
-            <span class="dl-status-val ready">Ready</span>
-          </div>
           <a href="downloads/SPEC-OPS-Clip-Review-win.exe" class="btn btn-primary" download>Download .exe</a>
         </div>
 
         <div class="dl-card">
-          <div class="dl-platform">Platform</div>
           <div class="dl-name">macOS</div>
           <div class="dl-meta">Apple Silicon + Intel · .app bundle</div>
-          <div class="dl-status">
-            <span class="dl-status-label">Status</span>
-            <span class="dl-status-val ready">Ready</span>
-          </div>
           <a href="downloads/clipreview-mac.zip" class="btn btn-primary" download>Download .zip</a>
         </div>
 
