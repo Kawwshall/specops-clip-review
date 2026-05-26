@@ -440,7 +440,8 @@ def quick_scan_mcap(path: Path):
 
 
 def list_drives():
-    """Enumerate drives/volumes instantly — Windows (ctypes) and macOS (/Volumes)."""
+    """Enumerate drives/volumes — Windows (ctypes) and macOS (/Volumes).
+    macOS: skips the local HD symlink and uses diskutil to filter out disk images."""
     os_name = platform.system()
     if os_name == 'Windows':
         try:
@@ -463,36 +464,113 @@ def list_drives():
             return []
     elif os_name == 'Darwin':
         drives = []
+        # Parse mount output: volumes with the 'quarantine' flag are app DMG mounts,
+        # not real drives.  Real SD cards / USB drives are never quarantined.
+        quarantined_mps: set[str] = set()
         try:
-            for vol in Path('/Volumes').iterdir():
-                if vol.is_dir() and not vol.name.startswith('.'):
-                    drives.append({'path': str(vol) + '/', 'label': vol.name, 'removable': True})
+            mout = subprocess.run(['mount'], capture_output=True, text=True, timeout=5).stdout
+            for line in mout.splitlines():
+                parts = line.split(' on ', 1)
+                if len(parts) != 2:
+                    continue
+                mp   = parts[1].split(' (')[0].strip()
+                opts = parts[1].split('(', 1)[1].rstrip(')') if '(' in parts[1] else ''
+                if 'quarantine' in opts:
+                    quarantined_mps.add(mp)
+        except Exception:
+            pass
+
+        local_root = Path('/').resolve()
+        try:
+            for vol in sorted(Path('/Volumes').iterdir()):
+                if not vol.is_dir() or vol.name.startswith('.'):
+                    continue
+                # Skip the "Macintosh HD → /" symlink (local internal drive)
+                try:
+                    if vol.resolve() == local_root:
+                        continue
+                except OSError:
+                    continue
+                # Skip app DMG mounts (downloaded from internet, quarantined)
+                if str(vol) in quarantined_mps:
+                    continue
+                drives.append({'path': str(vol) + '/', 'label': vol.name, 'removable': True})
         except Exception:
             pass
         return drives
     return []
 
 
+# Common recording folder names used by various cameras/recorders
+_REC_FOLDERS = (
+    'recordings', 'Recordings', 'RECORDINGS',
+    'clips', 'Clips', 'CLIPS',
+    'rec', 'REC', 'video', 'VIDEO',
+    'data', 'DATA', 'DCIM',
+    'zedrec', 'ZEDREC',
+)
+
 def auto_detect_recordings():
-    """Find drives that contain a recordings folder with MCAP files."""
+    """Find drives containing MCAP files.
+    Strategy (in order):
+      1. Common recording folder names at the volume root
+      2. MCAP files directly in the volume root
+      3. Any first-level subdirectory containing MCAP files
+    """
     results = []
     for drive in list_drives():
-        for folder in ('recordings', 'Recordings', 'RECORDINGS'):
-            rec = Path(drive['path']) / folder
+        drive_path = Path(drive['path'])
+        found_root = None
+        mcap_count = 0
+
+        # 1 — common folder names
+        for folder in _REC_FOLDERS:
+            rec = drive_path / folder
             try:
                 if rec.is_dir():
                     count = sum(1 for _ in rec.rglob('*.mcap'))
                     if count:
-                        results.append({
-                            'path': str(rec),
-                            'drive': drive['path'],
-                            'label': drive['label'],
-                            'mcap_count': count,
-                            'removable': drive['removable'],
-                        })
-                    break
-            except PermissionError:
+                        found_root = str(rec)
+                        mcap_count = count
+                        break
+            except (PermissionError, OSError):
                 continue
+
+        # 2 — MCAP files directly at the volume root
+        if not found_root:
+            try:
+                count = sum(1 for _ in drive_path.glob('*.mcap'))
+                if count:
+                    found_root = str(drive_path)
+                    mcap_count = count
+            except (PermissionError, OSError):
+                pass
+
+        # 3 — any first-level subdirectory with MCAP files
+        if not found_root:
+            try:
+                for subdir in sorted(drive_path.iterdir()):
+                    if not subdir.is_dir() or subdir.name.startswith('.'):
+                        continue
+                    try:
+                        count = sum(1 for _ in subdir.glob('*.mcap'))
+                        if count:
+                            found_root = str(subdir)
+                            mcap_count = count
+                            break
+                    except (PermissionError, OSError):
+                        continue
+            except (PermissionError, OSError):
+                pass
+
+        if found_root:
+            results.append({
+                'path':      found_root,
+                'drive':     drive['path'],
+                'label':     drive['label'],
+                'mcap_count': mcap_count,
+                'removable': drive['removable'],
+            })
     return results
 
 

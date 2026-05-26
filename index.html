@@ -64,11 +64,30 @@
     .main { flex: 1; display: grid; grid-template-columns: minmax(0,1fr) 280px; min-height: 0; }
 
     /* ── Idle / waiting state ── */
-    .idle-state { display: none; grid-column: 1/-1; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
+    .idle-state { display: none; grid-column: 1/-1; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
     .idle-state.visible { display: flex; }
     .idle-icon { font-size: 40px; opacity: .2; }
     .idle-title { font: 600 16px/1 var(--sans); color: var(--muted); letter-spacing: -.02em; }
     .idle-sub { font: 400 12px/1 var(--sans); color: var(--dim); }
+    /* Drive picker shown when drives are visible */
+    .drive-picker { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .drive-picker-label { font: 400 10px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+    .drive-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .drive-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 16px; border: 1px solid var(--line);
+      background: var(--panel); color: var(--ink);
+      font: 13px/1 var(--sans); cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .drive-btn:hover { border-color: var(--muted); background: var(--elevated); }
+    .drive-btn-icon { font-size: 16px; }
+    .drive-btn-name { font-weight: 600; }
+    /* Manual path row */
+    .manual-divider { font: 400 10px/1 var(--sans); color: var(--dim); letter-spacing: .04em; }
+    .manual-inline { display: flex; align-items: center; gap: 8px; }
+    .manual-inline input { height: 30px; padding: 0 8px; width: 260px; background: var(--elevated); border: 1px solid var(--line); color: var(--ink); font: 12px var(--sans); }
+    .manual-inline input::placeholder { color: var(--dim); }
 
     /* ── Clip list ── */
     .clips-pane { border-left: 1px solid var(--line); overflow-y: auto; }
@@ -118,13 +137,6 @@
       <div class="status-dot" id="statusDot"></div>
       <span id="cardLabel" class="card-sub">Waiting for card…</span>
     </div>
-    <button class="manual-toggle" id="manualToggle">manual path</button>
-  </div>
-
-  <!-- Manual path (hidden by default) -->
-  <div class="manual-row" id="manualRow">
-    <input id="manualPath" type="text" placeholder="F:\recordings">
-    <button class="btn" id="manualScan">Scan</button>
   </div>
 
   <!-- Summary bar -->
@@ -137,8 +149,21 @@
     <!-- Idle state -->
     <div class="idle-state visible" id="idleState">
       <div class="idle-icon">💾</div>
-      <div class="idle-title">Insert ZEDREC card</div>
-      <div class="idle-sub">Card will be detected automatically</div>
+      <div class="idle-title" id="idleTitle">Insert ZEDREC card</div>
+      <div class="idle-sub" id="idleSub">Waiting for card…</div>
+
+      <!-- Drive buttons — shown when volumes are available -->
+      <div class="drive-picker" id="drivePicker" style="display:none">
+        <div class="drive-picker-label">Available drives — click to scan</div>
+        <div class="drive-btns" id="driveBtns"></div>
+      </div>
+
+      <!-- Manual path — always visible as fallback -->
+      <div class="manual-divider">or enter path manually</div>
+      <div class="manual-inline">
+        <input id="manualPath" type="text" placeholder="/Volumes/SD-CARD/recordings">
+        <button class="btn" id="manualScan">Scan</button>
+      </div>
     </div>
 
     <!-- Player (hidden until clip selected) -->
@@ -170,10 +195,10 @@
   const $ = id => document.getElementById(id);
   const els = {
     statusDot: $('statusDot'), cardLabel: $('cardLabel'),
-    manualToggle: $('manualToggle'), manualRow: $('manualRow'),
     manualPath: $('manualPath'), manualScan: $('manualScan'),
     summaryBar: $('summaryBar'),
-    idleState: $('idleState'),
+    idleState: $('idleState'), idleTitle: $('idleTitle'), idleSub: $('idleSub'),
+    drivePicker: $('drivePicker'), driveBtns: $('driveBtns'),
     playerPane: $('playerPane'), playerPlaceholder: $('playerPlaceholder'),
     placeholderText: $('placeholderText'),
     vid: $('vid'), pbPlay: $('pbPlay'), pbBack: $('pbBack'),
@@ -196,31 +221,73 @@
     els.statusBar.className = `statusbar ${kind}`;
   }
 
-  // ── Auto-detect card ──────────────────────────────────────────────────────
+  // ── Drive picker + auto-detect ────────────────────────────────────────────
 
   let lastDetectedPath = null;
+  let lastDriveKeys    = '';   // JSON string to detect changes
+
+  // Render drive buttons in the idle state
+  function renderDrivePicker(drives) {
+    const keys = JSON.stringify(drives.map(d => d.path));
+    if (keys === lastDriveKeys) return;
+    lastDriveKeys = keys;
+
+    els.driveBtns.innerHTML = '';
+    if (drives.length === 0) {
+      els.drivePicker.style.display = 'none';
+      els.idleSub.textContent = 'Waiting for card…';
+      return;
+    }
+
+    els.drivePicker.style.display = '';
+    els.idleSub.textContent = 'Card detected — click to scan, or select a drive below';
+
+    drives.forEach(d => {
+      const btn = document.createElement('button');
+      btn.className = 'drive-btn';
+      btn.innerHTML = `<span class="drive-btn-icon">💾</span><span class="drive-btn-name">${d.label}</span>`;
+      btn.addEventListener('click', () => {
+        // Scan the drive root so we find MCAP files wherever they are
+        lastDetectedPath = d.path;
+        els.statusDot.className = 'status-dot scanning';
+        els.cardLabel.innerHTML = `<span class="card-label">${d.label}</span> <span class="card-sub">— scanning…</span>`;
+        setStatus(`Scanning ${d.label}…`);
+        scanPath(d.path);
+      });
+      els.driveBtns.appendChild(btn);
+    });
+  }
 
   async function pollDetect() {
     try {
-      const res = await fetch('/api/auto-detect', { cache: 'no-store' });
-      const { results } = await res.json();
+      // Run both requests in parallel
+      const [detectRes, drivesRes] = await Promise.all([
+        fetch('/api/auto-detect', { cache: 'no-store' }),
+        fetch('/api/list-drives',  { cache: 'no-store' }),
+      ]);
+      const { results } = await detectRes.json();
+      const { drives }  = await drivesRes.json();
+
+      // Update drive picker whenever no clip is being shown
+      if (els.idleState.classList.contains('visible')) {
+        renderDrivePicker(drives || []);
+      }
+
       if (results && results.length > 0) {
         const r = results[0];
         if (r.path !== lastDetectedPath) {
           lastDetectedPath = r.path;
           els.statusDot.className = 'status-dot scanning';
           els.cardLabel.innerHTML = `<span class="card-label">${r.label}</span> <span class="card-sub">— scanning…</span>`;
-          setStatus(`Detected ${r.label} — scanning ${r.mcap_count} clips…`);
+          setStatus(`Auto-detected ${r.label} — scanning ${r.mcap_count} clips…`);
           await scanPath(r.path);
         }
       } else {
-        // Card removed
+        // Card removed / nothing auto-detected
         if (lastDetectedPath) {
           lastDetectedPath = null;
           state.root = '';
           state.items = [];
-
-          // Wipe converted files from disk immediately
           fetch('/api/clear-cache', { cache: 'no-store' }).catch(() => {});
           els.statusDot.className = 'status-dot';
           els.cardLabel.textContent = 'Waiting for card…';
@@ -440,10 +507,9 @@
 
   // ── Manual path fallback ──────────────────────────────────────────────────
 
-  els.manualToggle.addEventListener('click', () => els.manualRow.classList.toggle('open'));
   els.manualScan.addEventListener('click', () => {
     const p = els.manualPath.value.trim();
-    if (p) { lastDetectedPath = p; scanPath(p); els.manualRow.classList.remove('open'); }
+    if (p) { lastDetectedPath = p; scanPath(p); }
   });
   els.manualPath.addEventListener('keydown', e => {
     if (e.key === 'Enter') els.manualScan.click();
