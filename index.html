@@ -18,7 +18,6 @@
       --line: #2a2a2a;
       --ok: #22c55e;
       --warn: #f59e0b;
-      --bad: #ef4444;
       --accent: #3b82f6;
       --sans: system-ui, "Helvetica Neue", sans-serif;
       --mono: "JetBrains Mono", "Menlo", monospace;
@@ -59,9 +58,6 @@
     .stat { display: flex; flex-direction: column; gap: 2px; }
     .stat-label { font: 400 9px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
     .stat-value { font: 700 16px/1 var(--sans); letter-spacing: -.03em; }
-    .stat-value.ok { color: var(--ok); }
-    .stat-value.warn { color: var(--warn); }
-    .stat-value.bad { color: var(--bad); }
 
 
     /* ── Main layout ── */
@@ -84,10 +80,6 @@
     .clip-time { font: 600 13px/1 var(--mono); color: var(--ink); min-width: 42px; }
     .clip-dur  { font: 400 11px/1 var(--sans); color: var(--muted); }
     .clip-name { font: 400 10px/1 var(--mono); color: var(--dim); margin-left: auto; }
-    .act-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--dim); }
-    .act-dot.good    { background: var(--ok); }
-    .act-dot.bad     { background: var(--dim); }
-    .act-dot.pending { background: var(--dim); animation: pulse 1.5s infinite; }
 
     /* ── Player pane ── */
     .player-pane { display: flex; flex-direction: column; min-height: 0; }
@@ -195,13 +187,7 @@
     activeItem: null,
     converting: false,
     convertAbort: null,
-    scores: new Map(),   // relativePath -> {score, frames}
   };
-
-  // IMU-based: stddev of |linear_accel| × 12.5 → 0–100
-  // stddev > 2 m/s² (score 25) = clearly active; < 0.64 m/s² (score 8) = idle/stationary
-  const SCORE_ACTIVE = 25;
-  const SCORE_MOTION = 3;  // head-mount IMU: close tasks (dishes, prep) sit around 3-8, truly static <3
 
   // ── Status helpers ────────────────────────────────────────────────────────
 
@@ -233,7 +219,7 @@
           lastDetectedPath = null;
           state.root = '';
           state.items = [];
-          state.scores.clear();
+
           // Wipe converted files from disk immediately
           fetch('/api/clear-cache', { cache: 'no-store' }).catch(() => {});
           els.statusDot.className = 'status-dot';
@@ -286,45 +272,19 @@
     els.clipsPane.classList.remove('hidden');
   }
 
-  // ── Coverage computation ──────────────────────────────────────────────────
-
-  function computeCoverage(items) {
-    const coverage = new Map();   // "YYYY-MM-DD:H" → seconds
-    const dayData  = new Map();   // "YYYY-MM-DD"   → {firstH, lastH}
-    for (const item of items) {
-      if (!item.startMs || !item.endMs) continue;
-      let cur = Math.floor(item.startMs / 3600000) * 3600000;
-      while (cur < item.endMs) {
-        const next = cur + 3600000;
-        const overlap = (Math.min(next, item.endMs) - Math.max(cur, item.startMs)) / 1000;
-        if (overlap > 0) {
-          const d = new Date(cur);
-          const ymd = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-          const h   = d.getHours();
-          coverage.set(`${ymd}:${h}`, (coverage.get(`${ymd}:${h}`) || 0) + overlap);
-          const day = dayData.get(ymd) || { firstH: 24, lastH: -1 };
-          day.firstH = Math.min(day.firstH, h); day.lastH = Math.max(day.lastH, h);
-          dayData.set(ymd, day);
-        }
-        cur = next;
-      }
-    }
-    return { coverage, dayData };
-  }
-
   // ── Summary bar ───────────────────────────────────────────────────────────
 
   function renderSummary(items) {
     const totalS = items.reduce((s, i) => s + (i.durationS || 0), 0);
     const count  = items.length;
     els.summaryBar.innerHTML =
-      stat('Total', totalS > 0 ? fmtDur(totalS) : '—', '') +
-      stat('Clips', count, '');
+      stat('Total', totalS > 0 ? fmtDur(totalS) : '—') +
+      stat('Clips',  count);
     els.summaryBar.classList.add('visible');
   }
 
-  function stat(label, value, cls) {
-    return `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value ${cls}">${value}</div></div>`;
+  function stat(label, value) {
+    return `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
   }
 
 
