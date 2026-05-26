@@ -200,69 +200,59 @@ def _parse_vector3(data: bytes):
     return x, y, z
 
 
-def extract_imu_accels(path: Path, n: int = 250):
-    """Read the first chunk of an MCAP and return up to N linear-acceleration (x,y,z) samples
-    from the /top-camera/imu topic (field 5 of zed.Imu = linear acceleration in m/s²)."""
-    READ_SIZE = 512 * 1024  # 512 KB — IMU messages are tiny, this covers 250+ readings
-    try:
-        with path.open('rb') as f:
-            head = f.read(READ_SIZE)
-    except OSError:
-        return []
-    if not head.startswith(MAGIC):
-        return []
+def _imu_scan_window(data: bytes, schemas: dict, channels: dict, accels: list, n: int):
+    """Scan raw MCAP bytes for IMU acceleration messages, appending to accels."""
+    cp = 0
+    while cp + 9 <= len(data) and len(accels) < n:
+        op   = data[cp]
+        clen = int.from_bytes(data[cp + 1: cp + 9], 'little')
+        cs   = cp + 9
+        if cs + clen > len(data):
+            break
+        body = data[cs: cs + clen]
+        r    = Reader(body)
+        try:
+            if op == 0x03:
+                sid = r.u16(); name = r.string32()
+                schemas.setdefault(sid, name)
+            elif op == 0x04:
+                cid, sid = r.u16(), r.u16(); t, enc = r.string32(), r.string32()
+                if cid not in channels:
+                    channels[cid] = (schemas.get(sid, ''), t, enc)
+            elif op == 0x05:
+                cid = r.u16(); r.u32(); r.u64(); r.u64()
+                payload = r.take(r.remaining())
+                schema, t, _enc = channels.get(cid, ('', '', ''))
+                if 'imu' in t.lower() and 'zed' in schema.lower():
+                    fields = proto_fields(payload)
+                    if isinstance(fields.get(5), bytes):
+                        x, y, z = _parse_vector3(fields[5])
+                        mag = (x*x + y*y + z*z) ** 0.5
+                        if 1.0 < mag < 50.0:
+                            accels.append(mag)
+        except Exception:
+            pass
+        cp = cs + clen
+        if op == 0x02:
+            break
 
-    schemas, channels, accels = {}, {}, []
 
-    def _scan_records(data: bytes):
-        cp = 0
-        while cp + 9 <= len(data) and len(accels) < n:
-            op = data[cp]
-            clen = int.from_bytes(data[cp + 1:cp + 9], 'little')
-            cs = cp + 9
-            if cs + clen > len(data):
-                break
-            body = data[cs:cs + clen]
-            r = Reader(body)
-            try:
-                if op == 0x03:
-                    sid = r.u16(); name = r.string32()
-                    schemas.setdefault(sid, name)
-                elif op == 0x04:
-                    cid, sid = r.u16(), r.u16(); t, enc = r.string32(), r.string32()
-                    if cid not in channels:
-                        channels[cid] = (schemas.get(sid, ''), t, enc)
-                elif op == 0x05:
-                    cid = r.u16(); r.u32(); r.u64(); r.u64()
-                    payload = r.take(r.remaining())
-                    schema, t, _enc = channels.get(cid, ('', '', ''))
-                    if 'imu' in t.lower() and 'zed' in schema.lower():
-                        fields = proto_fields(payload)
-                        # field 5 = linear_acceleration Vector3 (m/s²)
-                        if isinstance(fields.get(5), bytes):
-                            x, y, z = _parse_vector3(fields[5])
-                            mag = (x*x + y*y + z*z) ** 0.5
-                            if 1.0 < mag < 50.0:  # sanity: 1–50 m/s²
-                                accels.append(mag)
-            except Exception:
-                pass
-            cp = cs + clen
-            if op == 0x02:
-                break
-
-    pos = len(MAGIC); limit = len(head)
+def _scan_chunk_window(raw: bytes, schemas: dict, channels: dict, accels: list, n: int):
+    """Walk top-level MCAP records in raw bytes, descending into uncompressed chunks."""
+    pos = 0; limit = len(raw)
     while pos + 9 <= limit and len(accels) < n:
-        op = head[pos]
-        body_len = int.from_bytes(head[pos + 1:pos + 9], 'little')
+        op        = raw[pos]
+        body_len  = int.from_bytes(raw[pos + 1: pos + 9], 'little')
         body_start = pos + 9
-        available = min(body_len, limit - body_start)
-        if op == 0x06:
-            r = Reader(head[body_start:body_start + available])
+        available  = min(body_len, limit - body_start)
+        if op == 0x06:  # Chunk
+            r = Reader(raw[body_start: body_start + available])
             try:
                 r.u64(); r.u64(); r.u64(); r.u32()
-                if not r.string32():  # no compression
+                if not r.string32():           # no compression
                     r.u64()
-                    _scan_records(head[body_start + r.pos:body_start + available])
+                    _imu_scan_window(raw[body_start + r.pos: body_start + available],
+                                     schemas, channels, accels, n)
             except Exception:
                 pass
         if body_start + body_len > limit:
@@ -270,6 +260,71 @@ def extract_imu_accels(path: Path, n: int = 250):
         pos = body_start + body_len
         if op == 0x02:
             break
+
+
+def extract_imu_accels(path: Path, n: int = 300):
+    """Return up to N IMU linear-acceleration magnitudes sampled from across the
+    full recording (start, middle, end) for accurate whole-shift activity scoring.
+
+    Strategy:
+      1. Read schema/channel definitions from the first 128 KB.
+      2. Use ChunkIndex records (from the MCAP summary) to locate chunks spread
+         evenly across the timeline; read 512 KB windows around each.
+      3. Fall back to a single head-only scan if no summary is available.
+    """
+    READ_SIZE = 512 * 1024
+    schemas: dict = {}
+    channels: dict = {}
+    accels: list  = []
+
+    # ── Step 1: bootstrap schema/channel map from file header ────────────────
+    try:
+        with path.open('rb') as f:
+            head = f.read(READ_SIZE)
+    except OSError:
+        return []
+    if not head.startswith(MAGIC):
+        return []
+    _scan_chunk_window(head[len(MAGIC):], schemas, channels, [], n)  # collect defs only
+
+    # ── Step 2: locate chunks via ChunkIndex records in the summary ───────────
+    summary = _read_mcap_summary(path, max_bytes=262144)  # 256 KB
+    chunk_locs: list[tuple[int, int, int]] = []  # (start_ns, offset, length)
+    if summary:
+        sp = 0
+        while sp + 9 <= len(summary):
+            sop  = summary[sp]
+            sbln = int.from_bytes(summary[sp + 1: sp + 9], 'little')
+            sbs  = sp + 9
+            if sop == 0x0A and sbln >= 32 and sbs + 32 <= len(summary):  # ChunkIndex
+                r = Reader(summary[sbs: sbs + sbln])
+                sn = r.u64(); r.u64()          # start/end time
+                offset = r.u64(); length = r.u64()
+                chunk_locs.append((sn, offset, length))
+            if sop == 0x02 or sbln == 0 or sbs + sbln > len(summary):
+                break
+            sp = sbs + sbln
+        chunk_locs.sort()  # sort by start_ns
+
+    if chunk_locs:
+        # Pick up to 5 evenly-spaced chunks: beginning, quarters, end
+        total  = len(chunk_locs)
+        picks  = sorted({0, total // 4, total // 2, 3 * total // 4, total - 1})
+        try:
+            with path.open('rb') as f:
+                for idx in picks:
+                    if len(accels) >= n:
+                        break
+                    _, offset, length = chunk_locs[idx]
+                    f.seek(offset)
+                    window = f.read(min(length, READ_SIZE))
+                    _scan_chunk_window(window, schemas, channels, accels, n)
+        except OSError:
+            pass
+    else:
+        # Fallback: head-only scan (original behaviour)
+        _scan_chunk_window(head[len(MAGIC):], schemas, channels, accels, n)
+
     return accels
 
 
@@ -296,42 +351,85 @@ def compute_activity_score(path: Path) -> dict:
     return result
 
 
-def quick_scan_mcap(path: Path):
-    """Read only the first 32 KB to get start time from the first chunk header.
-    Chunk bodies extend for MBs, so we read timestamps from just the first 16 bytes
-    of the body even if the full body isn't in our window."""
+def _read_mcap_summary(path: Path, max_bytes: int = 131072) -> bytes | None:
+    """Read the MCAP summary section by parsing the file footer.
+    Returns raw summary bytes, or None if the file has no summary / can't be read."""
+    _HDR = 9    # op(1) + length(8)
+    _FOOTER_BODY = 20  # summary_start(8) + summary_offset_start(8) + summary_crc(4)
     try:
         with path.open('rb') as f:
-            head = f.read(32768)  # 32 KB — enough to pass schemas/channels and hit first chunk
-        start_ns = None
-        end_ns = None
-        pos = len(MAGIC)
-        limit = len(head)
-        while pos + 9 <= limit:
-            op = head[pos]
-            body_len = int.from_bytes(head[pos + 1:pos + 9], 'little')
-            body_start = pos + 9
-            if op in (0x06, 0x0A) and body_len >= 16 and body_start + 16 <= limit:
-                s = int.from_bytes(head[body_start:body_start + 8], 'little')
-                e = int.from_bytes(head[body_start + 8:body_start + 16], 'little')
-                if s > EPOCH_SANITY_NS:
-                    start_ns = min(start_ns, s) if start_ns is not None else s
-                if e > EPOCH_SANITY_NS:
-                    end_ns = max(end_ns, e) if end_ns is not None else e
-                if start_ns:
-                    break  # got what we need from first chunk
-            if body_start + body_len > limit:
-                break  # record extends past window; can't advance
-            pos = body_start + body_len
-            if op == 0x02:
-                break
-        if start_ns:
-            # First chunk end_time only covers that chunk (~13s); use 3-minute default
-            end_ns = start_ns + 180_000_000_000
-            return {'start_ms': start_ns / 1e6, 'end_ms': end_ns / 1e6, 'duration_s': 180.0}
-        return None
+            # Verify trailing MAGIC
+            f.seek(-len(MAGIC), 2)
+            if f.read(len(MAGIC)) != MAGIC:
+                return None
+            # Footer record sits immediately before trailing MAGIC
+            f.seek(-(len(MAGIC) + _HDR + _FOOTER_BODY), 2)
+            raw = f.read(_HDR + _FOOTER_BODY)
+        if len(raw) < _HDR + _FOOTER_BODY or raw[0] != 0x02:
+            return None
+        summary_start = int.from_bytes(raw[_HDR: _HDR + 8], 'little')
+        if not summary_start:
+            return None
+        with path.open('rb') as f:
+            f.seek(summary_start)
+            return f.read(max_bytes)
     except OSError:
         return None
+
+
+def quick_scan_mcap(path: Path):
+    """Return timing dict with ACTUAL start/end/duration by reading the MCAP
+    Statistics record from the summary section.  Falls back to a 32 KB header
+    scan (returning a 3-minute estimate) if the summary can't be parsed."""
+    # ── Primary path: footer → Statistics record ─────────────────────────────
+    summary = _read_mcap_summary(path)
+    if summary:
+        pos = 0
+        while pos + 9 <= len(summary):
+            op  = summary[pos]
+            bln = int.from_bytes(summary[pos + 1: pos + 9], 'little')
+            bs  = pos + 9
+            if op == 0x0D:  # Statistics
+                # layout: msg_count(8) schema(2) chan(2) attach(4) meta(4) chunks(4)
+                #         message_start_time(8) message_end_time(8)  = 40 bytes min
+                if bln >= 40 and bs + 40 <= len(summary):
+                    r = Reader(summary[bs: bs + bln])
+                    r.u64(); r.u16(); r.u16(); r.u32(); r.u32(); r.u32()
+                    s_ns, e_ns = r.u64(), r.u64()
+                    if s_ns > EPOCH_SANITY_NS and e_ns > s_ns:
+                        return {
+                            'start_ms':   s_ns / 1e6,
+                            'end_ms':     e_ns / 1e6,
+                            'duration_s': (e_ns - s_ns) / 1e9,
+                        }
+                break  # found Statistics but couldn't parse — fall through
+            if op == 0x02 or bln == 0 or bs + bln > len(summary):
+                break
+            pos = bs + bln
+
+    # ── Fallback: scan first 32 KB for a chunk header ────────────────────────
+    try:
+        with path.open('rb') as f:
+            head = f.read(32768)
+        pos = len(MAGIC); limit = len(head); start_ns = None
+        while pos + 9 <= limit:
+            op       = head[pos]
+            body_len = int.from_bytes(head[pos + 1: pos + 9], 'little')
+            body_start = pos + 9
+            if op in (0x06, 0x0A) and body_len >= 16 and body_start + 16 <= limit:
+                s = int.from_bytes(head[body_start:     body_start + 8], 'little')
+                if s > EPOCH_SANITY_NS:
+                    start_ns = s; break
+            if body_start + body_len > limit: break
+            pos = body_start + body_len
+            if op == 0x02: break
+        if start_ns:
+            return {'start_ms': start_ns / 1e6,
+                    'end_ms':   (start_ns + 180_000_000_000) / 1e6,
+                    'duration_s': 180.0}
+    except OSError:
+        pass
+    return None
 
 
 def list_drives():

@@ -318,20 +318,25 @@
   // ── Summary bar ───────────────────────────────────────────────────────────
 
   function renderSummary(items, coverage, dayData) {
-    const totalS = items.reduce((s, i) => s + (i.durationS || 0), 0);
+    const knownS  = items.filter(i => i.durationS).reduce((s, i) => s + i.durationS, 0);
+    const unknown = items.filter(i => !i.durationS).length;
+    const totalLabel = knownS > 0
+      ? fmtDur(knownS) + (unknown > 0 ? ` +${unknown} ?` : '')
+      : (unknown > 0 ? `${unknown} clips` : '—');
     els.summaryBar.innerHTML =
-      stat('Total', fmtDur(totalS), '') +
-      `<div class="stat" id="statGood"><div class="stat-label">Good data</div><div class="stat-value" id="statGoodVal">...</div></div>` +
-      `<div class="stat" id="statBad"><div class="stat-label">Bad data</div><div class="stat-value" id="statBadVal">...</div></div>`;
+      stat('Total', totalLabel, '') +
+      `<div class="stat" id="statGood"><div class="stat-label">Good data</div><div class="stat-value" id="statGoodVal">—</div></div>` +
+      `<div class="stat" id="statBad"><div class="stat-label">Bad data</div><div class="stat-value" id="statBadVal">—</div></div>`;
     els.summaryBar.classList.add('visible');
   }
 
   function updateSummaryActivity() {
-    let goodS = 0, badS = 0;
+    let goodS = 0, badS = 0, scored = 0;
     for (const item of state.items) {
-      const sc = state.scores.get(item.relativePath);
-      const dur = item.durationS || 180;
-      if (!sc) continue;
+      const sc  = state.scores.get(item.relativePath);
+      const dur = item.durationS;          // use real duration only — no fake 180s fallback
+      if (!sc || !dur) continue;
+      scored++;
       if (sc.score >= 0 && sc.score < SCORE_MOTION) badS += dur;
       else goodS += dur;
     }
