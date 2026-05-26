@@ -11,3 +11,17 @@
     Content-Disposition = "attachment"
     Content-Type = "application/zip"
     Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/downloads/*.dmg"
+  [headers.values]
+    Content-Disposition = "attachment"
+    Content-Type = "application/x-apple-diskimage"
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/downloads/*.pkg"
+  [headers.values]
+    Content-Disposition = "attachment"
+    Content-Type = "application/octet-stream"
+    Cache-Control = "public, max-age=3600"

@@ -1,12 +1,7 @@
 #!/bin/bash
-# build-mac.sh  — builds ClipReview-installer.pkg for macOS.
-#
-# What the installer does for teammates:
-#   1. Drops ClipReview.app into /Applications
-#   2. Strips the quarantine flag so macOS never blocks it again
-#   3. First launch of the app auto-installs Python packages (notified via macOS)
-#
-# Requires: codesign, sips, iconutil, pkgbuild, productbuild  (all built-in on macOS)
+# build-mac.sh  — builds ClipReview-mac.dmg  (standard macOS drag-to-install)
+# Works on macOS 12 through 26+.  No PyInstaller, no compiled binary.
+# Requires: codesign, sips, iconutil, hdiutil  (all built-in on macOS)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -15,16 +10,18 @@ echo " SPEC-OPS Clip Review — macOS Build"
 echo " ====================================="
 echo ""
 
-APP="dist/ClipReview.app"
+# Use /tmp so stale root-owned files from previous builds can't block clean
+BUILD="/tmp/specops-mac-build"
+APP="$BUILD/ClipReview.app"
 CONTENTS="$APP/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
-PKG_ROOT="dist/pkg-root"
-PKG_SCRIPTS="dist/pkg-scripts"
+DMG_STAGE="$BUILD/dmg-stage"
 
 # ── Clean ──────────────────────────────────────────────────────────────────────
-rm -rf dist/ClipReview.app ClipReview-mac.zip ClipReview-installer.pkg "$PKG_ROOT" "$PKG_SCRIPTS"
-mkdir -p "$MACOS_DIR" "$RES" "$PKG_ROOT/Applications" "$PKG_SCRIPTS"
+chmod -R u+w "$BUILD" 2>/dev/null || true
+rm -rf "$BUILD" ClipReview-mac.dmg
+mkdir -p "$MACOS_DIR" "$RES" "$DMG_STAGE"
 
 # ── Copy source files into bundle ──────────────────────────────────────────────
 echo " Copying source files..."
@@ -33,7 +30,7 @@ cp server.py index.html spec-ops-logo.png "$RES/"
 # ── Generate .icns icon ────────────────────────────────────────────────────────
 if command -v sips >/dev/null && command -v iconutil >/dev/null; then
     echo " Generating icon..."
-    IS="spec-ops-logo.iconset"
+    IS="$BUILD/spec-ops-logo.iconset"
     mkdir -p "$IS"
     sips -z 16  16  spec-ops-logo.png --out "$IS/icon_16x16.png"      >/dev/null 2>&1
     sips -z 32  32  spec-ops-logo.png --out "$IS/icon_16x16@2x.png"   >/dev/null 2>&1
@@ -53,7 +50,7 @@ echo " Writing launcher..."
 cat > "$MACOS_DIR/ClipReview" << 'LAUNCHER'
 #!/bin/bash
 # ClipReview launcher — ClipReview.app/Contents/MacOS/ClipReview
-# Venv lives in ~/.clipreview — App Translocation has zero effect here.
+# Venv lives in ~/.clipreview so App Translocation has zero effect.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RESOURCES="$(cd "$SCRIPT_DIR/../Resources" && pwd)"
@@ -141,91 +138,35 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
 </plist>
 PLIST
 
-# ── Ad-hoc sign the .app ──────────────────────────────────────────────────────
-echo " Signing .app (ad-hoc)..."
+# ── Ad-hoc sign ───────────────────────────────────────────────────────────────
+echo " Signing (ad-hoc)..."
 codesign --deep --force --sign - "$APP"
-codesign --verify --deep --strict "$APP" && echo " .app signature: OK" || echo " WARNING: verify failed (non-fatal)"
+codesign --verify --deep --strict "$APP" && echo " Signature: OK" || echo " WARNING: verify failed (non-fatal)"
 
-# ── Copy .app into pkg root (installer will place it in /Applications) ────────
-echo " Preparing installer root..."
-ditto "$APP" "$PKG_ROOT/Applications/ClipReview.app"
+# ── Stage DMG contents ────────────────────────────────────────────────────────
+echo " Staging DMG..."
+ditto "$APP" "$DMG_STAGE/ClipReview.app"
+# Symlink to /Applications = standard "drag here" target inside the DMG
+ln -sf /Applications "$DMG_STAGE/Applications"
 
-# ── Write postinstall script ──────────────────────────────────────────────────
-# This runs after files are copied — strips the quarantine flag so macOS
-# never blocks the app again, even on the very first double-click.
-cat > "$PKG_SCRIPTS/postinstall" << 'POSTINSTALL'
-#!/bin/bash
-# Remove quarantine so the app opens without any Gatekeeper warning.
-xattr -rd com.apple.quarantine /Applications/ClipReview.app 2>/dev/null || true
-exit 0
-POSTINSTALL
-chmod +x "$PKG_SCRIPTS/postinstall"
+# ── Build DMG ─────────────────────────────────────────────────────────────────
+echo " Building DMG..."
+hdiutil create \
+    -volname "Clip Review" \
+    -srcfolder "$DMG_STAGE" \
+    -ov -format UDZO \
+    ClipReview-mac.dmg
 
-# ── Build component package ───────────────────────────────────────────────────
-echo " Building component package..."
-pkgbuild \
-    --root "$PKG_ROOT" \
-    --scripts "$PKG_SCRIPTS" \
-    --identifier "ai.build.specops.clipreview" \
-    --version "1.0.0" \
-    --install-location "/" \
-    dist/ClipReview-component.pkg
-
-# ── Write distribution XML (installer title + welcome text) ──────────────────
-cat > dist/distribution.xml << 'DISTXML'
-<?xml version="1.0" encoding="utf-8"?>
-<installer-gui-script minSpecVersion="2">
-    <title>Clip Review</title>
-    <welcome file="welcome.html" mime-type="text/html"/>
-    <options customize="never" require-scripts="true"/>
-    <pkg-ref id="ai.build.specops.clipreview"/>
-    <choices-outline>
-        <line choice="default">
-            <line choice="ai.build.specops.clipreview"/>
-        </line>
-    </choices-outline>
-    <choice id="default"/>
-    <choice id="ai.build.specops.clipreview" visible="false">
-        <pkg-ref id="ai.build.specops.clipreview"/>
-    </choice>
-    <pkg-ref id="ai.build.specops.clipreview" version="1.0.0" onConclusion="none">ClipReview-component.pkg</pkg-ref>
-</installer-gui-script>
-DISTXML
-
-# ── Write welcome HTML shown inside the installer ─────────────────────────────
-cat > dist/welcome.html << 'WELCOME'
-<html>
-<body style="font-family:-apple-system,sans-serif;padding:20px;color:#1a1a1a">
-<h2 style="margin-top:0">Clip Review</h2>
-<p>This installer will place <strong>ClipReview.app</strong> in your Applications folder.</p>
-<p>After installing:</p>
-<ol>
-  <li>Double-click <strong>ClipReview</strong> in Applications</li>
-  <li>First launch takes ~30 seconds to finish setup</li>
-  <li>Your browser opens automatically — you're ready to review clips</li>
-</ol>
-<p style="color:#666;font-size:12px">Requires Python 3 (available on all modern Macs). No internet needed after install.</p>
-</body>
-</html>
-WELCOME
-
-# ── Build final distribution package ─────────────────────────────────────────
-echo " Building installer package..."
-productbuild \
-    --distribution dist/distribution.xml \
-    --resources dist \
-    --package-path dist \
-    ClipReview-installer.pkg
-
-PKG_SIZE=$(du -sh ClipReview-installer.pkg | cut -f1)
+DMG_SIZE=$(du -sh ClipReview-mac.dmg | cut -f1)
 echo ""
 echo " BUILD SUCCESS"
-echo " Output : ClipReview-installer.pkg  ($PKG_SIZE)"
+echo " Output : ClipReview-mac.dmg  ($DMG_SIZE)"
 echo ""
-echo " Teammates:"
-echo "   1. Download ClipReview-installer.pkg"
-echo "   2. Double-click → click Continue → Install → enter password → Done"
-echo "   3. If macOS blocks the .pkg itself:"
-echo "      System Settings → Privacy & Security → Open Anyway (one-time only)"
-echo "   4. Open ClipReview from Applications — browser opens automatically"
+echo " Teammates install:"
+echo "   1. Open ClipReview-mac.dmg"
+echo "   2. Drag ClipReview → Applications arrow"
+echo "   3. Eject the DMG"
+echo "   4. Applications → double-click ClipReview"
+echo "   5. If macOS shows a security warning:"
+echo "      System Settings → Privacy & Security → Open Anyway"
 echo ""
