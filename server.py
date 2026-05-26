@@ -409,55 +409,65 @@ def _read_mcap_summary(path: Path, max_bytes: int = 131072) -> bytes | None:
 
 
 def quick_scan_mcap(path: Path):
-    """Return timing dict with ACTUAL start/end/duration by reading the MCAP
-    Statistics record from the summary section.  Falls back to a 32 KB header
-    scan (returning a 3-minute estimate) if the summary can't be parsed."""
-    # ── Primary path: footer → Statistics record ─────────────────────────────
+    """Return timing dict by reading ChunkIndex records from the MCAP summary section.
+    ChunkIndex (0x08) records store message_start_time / message_end_time for each
+    chunk — they work with any timestamp epoch (Unix, boot-relative, GPS, etc.).
+    Falls back to scanning the first 64 KB of data chunks if the summary is missing."""
+    # ── Primary path: summary section → ChunkIndex records ───────────────────
     summary = _read_mcap_summary(path)
     if summary:
         pos = 0
+        first_ns = None
+        last_ns  = None
         while pos + 9 <= len(summary):
             op  = summary[pos]
             bln = int.from_bytes(summary[pos + 1: pos + 9], 'little')
             bs  = pos + 9
-            if op == 0x0D:  # Statistics
-                # layout: msg_count(8) schema(2) chan(2) attach(4) meta(4) chunks(4)
-                #         message_start_time(8) message_end_time(8)  = 40 bytes min
-                if bln >= 40 and bs + 40 <= len(summary):
-                    r = Reader(summary[bs: bs + bln])
-                    r.u64(); r.u16(); r.u16(); r.u32(); r.u32(); r.u32()
-                    s_ns, e_ns = r.u64(), r.u64()
-                    if s_ns > EPOCH_SANITY_NS and e_ns > s_ns:
-                        return {
-                            'start_ms':   s_ns / 1e6,
-                            'end_ms':     e_ns / 1e6,
-                            'duration_s': (e_ns - s_ns) / 1e9,
-                        }
-                break  # found Statistics but couldn't parse — fall through
+            if op == 0x08 and bln >= 16 and bs + 16 <= len(summary):
+                # ChunkIndex: message_start_time(8)  message_end_time(8)  ...
+                s_ns = int.from_bytes(summary[bs:     bs + 8],  'little')
+                e_ns = int.from_bytes(summary[bs + 8: bs + 16], 'little')
+                if s_ns > 0 and e_ns > s_ns:
+                    if first_ns is None or s_ns < first_ns:
+                        first_ns = s_ns
+                    if last_ns is None or e_ns > last_ns:
+                        last_ns = e_ns
             if op == 0x02 or bln == 0 or bs + bln > len(summary):
                 break
             pos = bs + bln
+        if first_ns is not None and last_ns is not None and last_ns > first_ns:
+            return {
+                'start_ms':   first_ns / 1e6,
+                'end_ms':     last_ns  / 1e6,
+                'duration_s': (last_ns - first_ns) / 1e9,
+            }
 
-    # ── Fallback: scan first 32 KB for a chunk header ────────────────────────
+    # ── Fallback: scan first 64 KB for Chunk records ──────────────────────────
     try:
         with path.open('rb') as f:
-            head = f.read(32768)
-        pos = len(MAGIC); limit = len(head); start_ns = None
+            head = f.read(65536)
+        pos = len(MAGIC); limit = len(head); first_ns = None; last_ns = None
         while pos + 9 <= limit:
-            op       = head[pos]
-            body_len = int.from_bytes(head[pos + 1: pos + 9], 'little')
+            op         = head[pos]
+            body_len   = int.from_bytes(head[pos + 1: pos + 9], 'little')
             body_start = pos + 9
-            if op in (0x06, 0x0A) and body_len >= 16 and body_start + 16 <= limit:
-                s = int.from_bytes(head[body_start:     body_start + 8], 'little')
-                if s > EPOCH_SANITY_NS:
-                    start_ns = s; break
+            if op == 0x06 and body_len >= 16 and body_start + 16 <= limit:
+                # Chunk: message_start_time(8)  message_end_time(8)  ...
+                s_ns = int.from_bytes(head[body_start:     body_start + 8],  'little')
+                e_ns = int.from_bytes(head[body_start + 8: body_start + 16], 'little')
+                if s_ns > 0 and e_ns > s_ns:
+                    if first_ns is None or s_ns < first_ns:
+                        first_ns = s_ns
+                    if last_ns is None or e_ns > last_ns:
+                        last_ns = e_ns
             if body_start + body_len > limit: break
             pos = body_start + body_len
             if op == 0x02: break
-        if start_ns:
-            return {'start_ms': start_ns / 1e6,
-                    'end_ms':   (start_ns + 180_000_000_000) / 1e6,
-                    'duration_s': 180.0}
+        if first_ns is not None:
+            end_ns = last_ns if last_ns else first_ns + 180_000_000_000
+            return {'start_ms': first_ns / 1e6,
+                    'end_ms':   end_ns / 1e6,
+                    'duration_s': (end_ns - first_ns) / 1e9}
     except OSError:
         pass
     return None
