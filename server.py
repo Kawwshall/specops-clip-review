@@ -5,14 +5,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import imageio_ffmpeg
 
-# When frozen by PyInstaller: static files live in sys._MEIPASS (temp bundle dir),
-# mutable data (cache, uploads) lives in ~/.specops so it survives across runs.
+# ROOT  = where static files (index.html, etc.) live
+# _data = where mutable state (cache, uploads) lives
+#
+# Frozen (PyInstaller .exe):  ROOT = sys._MEIPASS,  _data = ~/.specops
+# Shell-script .app (mac):    SPECOPS_DATA env var sets _data = ~/.clipreview
+# Dev (python server.py):     ROOT = script dir,    _data = same dir
 if getattr(sys, 'frozen', False):
-    ROOT   = Path(sys._MEIPASS)
-    _data  = Path.home() / '.specops'
+    ROOT  = Path(sys._MEIPASS)
+    _data = Path.home() / '.specops'
+elif os.environ.get('SPECOPS_DATA'):
+    ROOT  = Path(__file__).resolve().parent
+    _data = Path(os.environ['SPECOPS_DATA'])
 else:
-    ROOT   = Path(__file__).resolve().parent
-    _data  = ROOT
+    ROOT  = Path(__file__).resolve().parent
+    _data = ROOT
 
 EPOCH_SANITY_NS = 1_000_000_000_000_000_000  # 2001-09-09, filter obviously wrong timestamps
 CACHE   = _data / 'converted'
