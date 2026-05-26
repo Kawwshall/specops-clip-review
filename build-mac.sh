@@ -79,6 +79,33 @@ if [ ! -f "$VENV/bin/python3" ]; then
     echo "$(date): First-run setup using $PYTHON3" >> "$LOG"
     "$PYTHON3" -m venv "$VENV" >> "$LOG" 2>&1
     "$VENV/bin/pip" install --quiet imageio-ffmpeg >> "$LOG" 2>&1
+
+    # ── Apple Silicon fix: pip always installs the x86_64 imageio-ffmpeg wheel   ──
+    # ── on arm64 Macs (Python reports x86_64). Download the real arm64 binary.   ──
+    if [ "$(uname -m)" = "arm64" ]; then
+        FFMPEG_BINDIR="$("$VENV/bin/python3" -c "import imageio_ffmpeg, os; print(os.path.join(os.path.dirname(imageio_ffmpeg.__file__), 'binaries'))")"
+        ARM_BIN="$FFMPEG_BINDIR/ffmpeg-macos-aarch64-v7.1"
+        if [ ! -f "$ARM_BIN" ] || [ "$(file "$ARM_BIN" 2>/dev/null)" = *"ASCII"* ]; then
+            echo "$(date): Downloading arm64 ffmpeg binary..." >> "$LOG"
+            # Download arm64 wheel from PyPI and extract binary
+            TMPWHL="$(mktemp /tmp/imageio_arm64_XXXXXX.whl)"
+            curl -fsSL "https://files.pythonhosted.org/packages/40/5c/f3d8a657d362cc93b81aab8feda487317da5b5d31c0e1fdfd5e986e55d17/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl" -o "$TMPWHL" >> "$LOG" 2>&1 && \
+            "$PYTHON3" -c "
+import zipfile, os, sys
+whl, dst = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(whl) as z:
+    for name in z.namelist():
+        if 'ffmpeg-macos' in name and 'aarch64' in name:
+            data = z.read(name)
+            with open(dst, 'wb') as f: f.write(data)
+            os.chmod(dst, 0o755)
+            print('arm64 ffmpeg installed:', len(data), 'bytes')
+" "$TMPWHL" "$ARM_BIN" >> "$LOG" 2>&1
+            rm -f "$TMPWHL"
+            echo "$(date): arm64 ffmpeg ready" >> "$LOG"
+        fi
+    fi
+
     echo "$(date): Setup complete" >> "$LOG"
 fi
 

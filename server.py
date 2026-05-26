@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
 import base64, hashlib, json, mimetypes, os, platform, shutil, struct, subprocess, sys, tempfile, uuid, urllib.parse
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import imageio_ffmpeg
@@ -28,6 +30,28 @@ UPLOADS = _data / 'uploads'
 CACHE.mkdir(parents=True, exist_ok=True)
 UPLOADS.mkdir(parents=True, exist_ok=True)
 MAGIC   = b'\x89MCAP0\r\n'
+
+# ── Persistent scan cache ─────────────────────────────────────────────────────
+# Stores quick_scan_mcap results keyed by "path|mtime|size".
+# Lives at ~/.clipreview/scan_cache.json so it survives restarts.
+_SCAN_CACHE_PATH = _data / 'scan_cache.json'
+_scan_cache_lock = threading.Lock()
+
+def _load_scan_cache() -> dict:
+    try:
+        if _SCAN_CACHE_PATH.exists():
+            return json.loads(_SCAN_CACHE_PATH.read_text())
+    except Exception:
+        pass
+    return {}
+
+def _save_scan_cache(cache: dict):
+    try:
+        _SCAN_CACHE_PATH.write_text(json.dumps(cache))
+    except Exception:
+        pass
+
+_scan_cache: dict = _load_scan_cache()
 
 _activity_cache: dict = {}  # path str -> score dict
 
@@ -574,28 +598,80 @@ def auto_detect_recordings():
     return results
 
 
+def _cached_quick_scan(path: Path) -> dict | None:
+    """quick_scan_mcap with a persistent disk cache. Returns timing dict or None."""
+    try:
+        st = path.stat()
+        key = f"{path}|{st.st_mtime_ns}|{st.st_size}"
+    except OSError:
+        return None
+
+    with _scan_cache_lock:
+        if key in _scan_cache:
+            return _scan_cache[key]  # cache hit — instant
+
+    result = quick_scan_mcap(path)
+
+    with _scan_cache_lock:
+        _scan_cache[key] = result
+        # Flush every 10 new entries so progress isn't lost if app quits mid-scan
+        if len(_scan_cache) % 10 == 0:
+            _save_scan_cache(_scan_cache)
+
+    return result
+
+
 def list_recordings(root_path: str):
     root = resolve_root(root_path)
     if not root:
         raise ValueError(f"could not access folder: {root_path}")
     files = sorted(root.rglob("*.mcap"))
-    items = []
+
+    # Build base items (name/size only — fast, no I/O beyond stat)
+    base_items: list[dict] = []
     for path in files:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
         rel = path.relative_to(root).as_posix()
         parts = rel.split("/")
-        device = parts[0] if len(parts) > 1 else "root"
-        item = {
+        base_items.append({
             "name": path.name,
             "relativePath": rel,
-            "device": device,
-            "size": path.stat().st_size,
-        }
-        timing = quick_scan_mcap(path)
+            "device": parts[0] if len(parts) > 1 else "root",
+            "size": size,
+            "_path": path,
+        })
+
+    # Scan timing in parallel (threads = min(8, file count))
+    # Files already in the disk cache return instantly; only new ones hit the SD card.
+    workers = min(8, max(1, len(base_items)))
+    timing_map: dict[str, dict] = {}
+
+    def scan_one(item):
+        return item["relativePath"], _cached_quick_scan(item["_path"])
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for rel, timing in pool.map(scan_one, base_items):
+            if timing:
+                timing_map[rel] = timing
+
+    # Flush updated cache to disk
+    with _scan_cache_lock:
+        _save_scan_cache(_scan_cache)
+
+    # Assemble final items
+    items = []
+    for item in base_items:
+        out = {k: v for k, v in item.items() if k != "_path"}
+        timing = timing_map.get(item["relativePath"])
         if timing:
-            item["startMs"] = timing["start_ms"]
-            item["endMs"] = timing["end_ms"]
-            item["durationS"] = round(timing["duration_s"], 1)
-        items.append(item)
+            out["startMs"]   = timing["start_ms"]
+            out["endMs"]     = timing["end_ms"]
+            out["durationS"] = round(timing["duration_s"], 1)
+        items.append(out)
+
     return {"root": str(root), "count": len(items), "items": items}
 
 
