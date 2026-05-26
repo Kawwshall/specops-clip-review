@@ -279,11 +279,8 @@
   // ── Render everything after scan ─────────────────────────────────────────
 
   function renderAll(items, rootLabel) {
-    state.scores.clear();
-    const { coverage, dayData } = computeCoverage(items);
-    renderSummary(items, coverage, dayData);
+    renderSummary(items);
     renderClips(items);
-    fetchActivityScores(items);
     els.idleState.classList.remove('visible');
     els.playerPane.classList.remove('hidden');
     els.clipsPane.classList.remove('hidden');
@@ -317,78 +314,19 @@
 
   // ── Summary bar ───────────────────────────────────────────────────────────
 
-  function renderSummary(items, coverage, dayData) {
-    const knownS  = items.filter(i => i.durationS).reduce((s, i) => s + i.durationS, 0);
-    const unknown = items.filter(i => !i.durationS).length;
-    const totalLabel = knownS > 0
-      ? fmtDur(knownS) + (unknown > 0 ? ` +${unknown} ?` : '')
-      : (unknown > 0 ? `${unknown} clips` : '—');
+  function renderSummary(items) {
+    const totalS = items.reduce((s, i) => s + (i.durationS || 0), 0);
+    const count  = items.length;
     els.summaryBar.innerHTML =
-      stat('Total', totalLabel, '') +
-      `<div class="stat" id="statGood"><div class="stat-label">Good data</div><div class="stat-value" id="statGoodVal">—</div></div>` +
-      `<div class="stat" id="statBad"><div class="stat-label">Bad data</div><div class="stat-value" id="statBadVal">—</div></div>`;
+      stat('Total', totalS > 0 ? fmtDur(totalS) : '—', '') +
+      stat('Clips', count, '');
     els.summaryBar.classList.add('visible');
-  }
-
-  function updateSummaryActivity() {
-    let goodS = 0, badS = 0, scored = 0;
-    for (const item of state.items) {
-      const sc  = state.scores.get(item.relativePath);
-      const dur = item.durationS;          // use real duration only — no fake 180s fallback
-      if (!sc || !dur) continue;
-      scored++;
-      if (sc.score >= 0 && sc.score < SCORE_MOTION) badS += dur;
-      else goodS += dur;
-    }
-    const fmt = s => {
-      if (s === 0) return '0 min';
-      const m = Math.round(s / 60);
-      return m < 60 ? `${m} min` : `${Math.floor(m/60)}h ${m%60}m`;
-    };
-    const gv = document.getElementById('statGoodVal');
-    const bv = document.getElementById('statBadVal');
-    if (gv) { gv.textContent = fmt(goodS); gv.className = 'stat-value ok'; }
-    if (bv) { bv.textContent = fmt(badS);  bv.className = 'stat-value' + (badS > 0 ? ' warn' : ''); }
   }
 
   function stat(label, value, cls) {
     return `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value ${cls}">${value}</div></div>`;
   }
 
-  // ── Background activity scoring ──────────────────────────────────────────
-
-  async function fetchActivityScores(items) {
-
-    for (const item of items) {
-      if (!state.scores.has(item.relativePath)) {
-        // Mark dot as pending
-        const dot = document.querySelector(`.act-dot[data-act="${CSS.escape(item.relativePath)}"]`);
-        if (dot) { dot.className = 'act-dot pending'; dot.title = 'Checking activity…'; }
-      }
-    }
-
-    for (const item of items) {
-      // Small delay between requests so server isn't overwhelmed
-      await new Promise(r => setTimeout(r, 80));
-      try {
-        const res = await fetch(`/api/activity?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}`, { cache: 'no-store' });
-        const data = await res.json();
-        state.scores.set(item.relativePath, data);
-
-        // Update dot on this clip row
-        const dot = document.querySelector(`.act-dot[data-act="${CSS.escape(item.relativePath)}"]`);
-        if (dot) {
-          const s = data.score;
-          if (s < 0) { dot.className = 'act-dot bad'; dot.title = 'IMU data unavailable'; }
-          else if (s < SCORE_MOTION) { dot.className = 'act-dot bad'; dot.title = 'Bad data . idle footage'; }
-          else { dot.className = 'act-dot good'; dot.title = 'Good data . operator active'; }
-        }
-
-        updateSummaryActivity();
-      } catch { /* skip failed score */ }
-    }
-    setStatus(`${items.length} clips loaded . scoring activity...`, 'ok');
-  }
 
   // ── Clips list ────────────────────────────────────────────────────────────
 
@@ -409,7 +347,7 @@
       row.className = 'clip-item';
       const timeStr = d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '--:--';
       const durStr  = item.durationS ? fmtDur(item.durationS) : item.size ? fmtBytes(item.size) : '';
-      row.innerHTML = `<span class="clip-time">${timeStr}</span><span class="clip-dur">${durStr}</span><span class="clip-name">${item.name}</span><span class="act-dot pending" data-act="${item.relativePath}" title="Checking activity…"></span>`;
+      row.innerHTML = `<span class="clip-time">${timeStr}</span><span class="clip-dur">${durStr}</span><span class="clip-name">${item.name}</span>`;
       row.addEventListener('click', () => selectClip(item, row));
       item._row = row;
       els.clipsPane.appendChild(row);
@@ -435,26 +373,32 @@
       const info = await res.json();
       if (info.error) throw new Error(info.error);
 
-      const topic = info.topics?.find(t => t.topic.includes('left') || t.topic.includes('image')) || info.topics?.[0];
-      if (!topic) throw new Error('No video topics found in this clip');
+      const topics = info.topics || [];
+      if (!topics.length) throw new Error('No video topics found in this clip');
 
-      // Start conversion automatically
-      showPlaceholder('Preparing video…', true);
-      setStatus(`Converting ${item.name}…`);
+      // Prefer left/image topic, fall back to any topic
+      const preferred = topics.find(t => t.topic.includes('left') || t.topic.includes('image')) || topics[0];
+      const queue = [preferred, ...topics.filter(t => t !== preferred)]; // preferred first, rest as fallback
 
-      const convRes = await fetch(`/api/convert-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}&topic=${encodeURIComponent(topic.topic)}&mode=fast`, { method: 'POST' });
-      const conv = await convRes.json();
-      if (conv.error) {
-        // Fast failed (H.265) . trying compat
+      let played = false;
+      for (const topic of queue) {
+        showPlaceholder(`Preparing video…`, true);
+        setStatus(`Converting ${item.name}…`);
+
+        // Try fast (stream copy) first
+        const r1 = await fetch(`/api/convert-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}&topic=${encodeURIComponent(topic.topic)}&mode=fast`, { method: 'POST' });
+        const c1 = await r1.json();
+        if (!c1.error) { await loadVideo(c1); played = true; break; }
+
+        // Fast failed — try compat (H.264 re-encode)
         showPlaceholder('Re-encoding for browser…', true);
-        setStatus(`Re-encoding ${item.name} (H.264 compat)…`);
-        const convRes2 = await fetch(`/api/convert-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}&topic=${encodeURIComponent(topic.topic)}&mode=compat`, { method: 'POST' });
-        const conv2 = await convRes2.json();
-        if (conv2.error) throw new Error(conv2.error);
-        await loadVideo(conv2);
-      } else {
-        await loadVideo(conv);
+        setStatus(`Re-encoding ${item.name} (H.264)…`);
+        const r2 = await fetch(`/api/convert-local?root=${encodeURIComponent(state.root)}&path=${encodeURIComponent(item.relativePath)}&topic=${encodeURIComponent(topic.topic)}&mode=compat`, { method: 'POST' });
+        const c2 = await r2.json();
+        if (!c2.error) { await loadVideo(c2); played = true; break; }
       }
+
+      if (!played) throw new Error('Could not convert any video topic in this clip');
       setStatus(`Playing ${item.name}`, 'ok');
     } catch (e) {
       showPlaceholder(e.message);
