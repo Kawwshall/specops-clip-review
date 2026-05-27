@@ -1,70 +1,95 @@
-# SPEC-OPS Clip Review Console
+# SPEC-OPS Clip Review
 
-This tool is for fast review of MCAP clips from device SD cards.
+Post-shift tool for reviewing MCAP footage from ZEDREC cards.
+Auto-detects the drive, lists all clips with duration, plays video directly in the browser.
 
-## Run
+**Download → [zkits.vercel.app/clip-review](https://zkits.vercel.app/clip-review)**
 
-**Windows**
-```bat
-start-viewer.bat
-```
+---
 
-**macOS**
+## What it does
+
+- Plug in the ZEDREC SD card — drive is detected automatically
+- Lists all MCAP clips sorted chronologically with real durations
+- Click any clip to play it in the browser (no extra software)
+- Converts H.265 on the fly; falls back to H.264 re-encode if the browser can't decode it
+- Clip timing is cached to disk so repeat loads are instant
+
+---
+
+## Stack
+
+| Part | What |
+|---|---|
+| `server.py` | Python HTTP server — MCAP parsing, ffmpeg conversion via `imageio-ffmpeg` |
+| `index.html` | Single-file app UI — drive picker, clip list, video player |
+| `landing/` | Static landing page deployed to Vercel (`zkits.vercel.app`) |
+| `.github/workflows/build.yml` | CI — builds Windows `.exe` + macOS `.dmg`, publishes to GitHub Releases |
+
+---
+
+## Dev setup
+
+Requires Python 3.9+.
+
 ```bash
-./start-viewer.sh
+pip install imageio-ffmpeg
+python server.py
+# open http://127.0.0.1:8765
 ```
 
-Then open `http://127.0.0.1:8765`.
+For the landing page, any static file server works:
 
-## Team workflow
-
-1. Mount or copy an SD card / USB drive.
-2. In the app, enter the root path — e.g. `D:\recordings` on Windows or `/Volumes/SD-CARD/recordings` on Mac.
-3. Click `Scan Drive`.
-4. Pick a clip from the indexed list.
-5. Pick a video topic.
-6. Click `Fast Play`.
-
-If the browser cannot decode H.265, the app automatically uses a smaller H.264 preview conversion.
-
-## Supported
-
-- Server-side scan of `.mcap` clips under a drive or folder.
-- Server-side topic inspection for local clips.
-- Foxglove `CompressedVideo` local conversion to browser-playable preview MP4.
-- JPEG/PNG/WebP frame playback for image-message MCAP files.
-- Custom player controls: play, pause, resume, seek, skip, fullscreen.
-
-## Deployment
-
-**Windows** — ship the built `ClipReview.exe` (single file, no Python needed).
-
-**macOS** — build with `./build-mac.sh` (signs + packages automatically):
 ```bash
-./build-mac.sh
-# outputs ClipReview-mac.zip
+cd landing
+python -m http.server 3000
+# open http://localhost:3000
 ```
-Teammates unzip, drag `ClipReview.app` to `/Applications`, and double-click — no Python needed.
 
-**Without building** — ship this folder and run with `start-viewer.sh` (macOS) or `start-viewer.bat` (Windows). Python 3.9+ required.
+---
 
-## macOS Gatekeeper
+## Building
 
-The app is ad-hoc signed (no paid Apple certificate). If macOS shows **"ClipReview cannot be opened because the developer cannot be verified"**:
+### macOS — DMG
 
-**Option A — right-click open (one-time prompt):**
-1. Right-click `ClipReview.app` → **Open**
-2. Click **Open** in the dialog
-
-**Option B — strip quarantine in Terminal:**
 ```bash
-xattr -rd com.apple.quarantine /Applications/ClipReview.app
+bash build-mac.sh
+# outputs ClipReview-mac.dmg
 ```
 
-After either option the app opens normally every time.
+Produces a drag-to-Applications DMG. No Python or Xcode required on the target machine — the app installs a venv in `~/.clipreview` on first launch.
+
+### Windows — .exe
+
+```bash
+pip install pyinstaller pillow imageio-ffmpeg
+pyinstaller --clean --noconfirm specops.spec
+# outputs dist/ClipReview.exe
+```
+
+Single self-contained executable. No install required.
+
+### CI (GitHub Actions)
+
+Every push to `main` triggers `.github/workflows/build.yml`:
+1. Builds Windows `.exe` and macOS `.dmg` in parallel
+2. Publishes both to the rolling `latest` GitHub Release
+3. Landing page auto-deploys to Vercel
+
+---
+
+## macOS first-launch note
+
+The app is ad-hoc signed (no Apple Developer certificate). If macOS shows "unverified developer":
+
+> System Settings → Privacy & Security → scroll down → Open Anyway
+
+One-time step — never appears again.
+
+---
 
 ## Limits
 
-- `zstd` and `lz4` compressed MCAP chunks are not decoded yet.
-- Preview conversion is optimized for speed, not archive quality.
-- The scan path must be reachable on the local machine that runs the helper.
+- Compressed MCAP chunks (`zstd`, `lz4`) are not decoded
+- Video conversion is optimised for speed, not archive quality
+- Server must run on the machine with the SD card attached

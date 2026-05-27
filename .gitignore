@@ -1,11 +1,22 @@
-﻿.venv/
-build/
-dist/
+# Python
+.venv/
 __pycache__/
 *.pyc
 *.pyo
+
+# Build artefacts
+build/
+dist/
+*.dmg
+*.exe
+*.pkg
+*.zip
+
+# Runtime dirs (created on launch)
 converted/
 uploads/
-landing/downloads/*.exe
-landing/downloads/*.zip
+
+# Claude / IDE
+.claude/
 .DS_Store
+*.swp
