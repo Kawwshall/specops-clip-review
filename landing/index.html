@@ -391,11 +391,15 @@ const PARTS = [{"name": "Processing Hub", "desc": "Core compute unit with coolin
 
 // theme toggle
 const themeBtn = document.getElementById('theme-btn');
-let dark = true;
+const saved = localStorage.getItem('theme');
+let dark = saved !== 'light';
+if (!dark) document.body.classList.add('light');
+themeBtn.textContent = dark ? 'Light mode' : 'Dark mode';
 themeBtn.onclick = () => {
   dark = !dark;
   document.body.classList.toggle('light', !dark);
   themeBtn.textContent = dark ? 'Light mode' : 'Dark mode';
+  localStorage.setItem('theme', dark ? 'dark' : 'light');
 };
 
 // modal

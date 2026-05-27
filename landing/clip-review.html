@@ -1,429 +1,300 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clip Review</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230d0d0d'/><text x='16' y='23' font-family='monospace' font-size='20' font-weight='600' fill='%23ffffff' text-anchor='middle'>S</text></svg>">
-  <meta name="description" content="Review MCAP footage from ZEDREC cards. Auto-detects the drive, shows active vs idle hours per clip, plays video in-browser.">
+  <meta name="description" content="Post-shift clip review tool for ZEDREC cards. Auto-detects the drive, lists all clips with duration, plays MCAP footage directly in the browser.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&family=Raleway:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg:        #0d0d0d;
-      --surface:   #1a1a1a;
-      --elevated:  #222222;
-      --border:    #2a2a2a;
-      --divider:   #1f1f1f;
-      --text:      #ffffff;
-      --text2:     #9a9a9a;
-      --text3:     #6b6b6b;
-      --textMuted: #4a4a4a;
-      --invertBg:  #ffffff;
-      --invertText:#0a0a0a;
-      --positive:  #22c55e;
-      --warning:   #f59e0b;
-      --sans: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      --mono: 'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
-    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
+    :root {
+      --bg:#0c0c0c; --bg2:#141414; --bg3:#1c1c1c; --bg4:#222;
+      --b:#252525; --b2:#333;
+      --t:#e2e2e2; --t2:#888; --t3:#444;
+      --green:#a8e890;
+    }
+    body.light {
+      --bg:#f5f5f2; --bg2:#ffffff; --bg3:#efefec; --bg4:#e8e8e5;
+      --b:#e0e0dc; --b2:#ccc;
+      --t:#1a1a1a; --t2:#555; --t3:#aaa;
+      --green:#2d7a10;
+    }
     body {
-      font-family: var(--sans);
-      font-size: 13px;
-      font-weight: 400;
-      line-height: 1.6;
-      letter-spacing: -0.02em;
-      background: var(--bg);
-      color: var(--text);
+      background: var(--bg); color: var(--t);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px; line-height: 1.6;
+      min-height: 100vh;
+      transition: background .2s, color .2s;
       -webkit-font-smoothing: antialiased;
     }
     a { color: inherit; text-decoration: none; }
+    .pg { max-width: 760px; margin: 0 auto; padding: 3rem 2rem 5rem; }
 
-    .container { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
-
-    /* ── Site Nav ── */
-    .site-nav {
-      position: sticky; top: 0; z-index: 100;
-      background: var(--bg);
-      border-bottom: 1px solid var(--border);
-    }
-    .site-nav .container {
-      display: flex; align-items: center; gap: 32px; height: 48px;
-    }
-    .nav-logo img { height: 11px; display: block; }
-    .nav-links { display: flex; gap: 24px; margin-left: 8px; }
+    /* ── Top bar ── */
+    .topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2.5rem; }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
     .nav-links a {
-      font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-      color: var(--text2);
-      padding-bottom: 2px;
-      border-bottom: 1px solid transparent;
-      transition: color 0.1s, border-color 0.1s;
+      font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+      color: var(--t3); transition: color .1s;
     }
-    .nav-links a:hover { color: var(--text); }
-    .nav-links a.active { color: var(--text); border-bottom: 1px solid var(--text); }
+    .nav-links a:hover { color: var(--t); }
+    .nav-links a.active { color: var(--t); }
+    .theme-btn {
+      background: var(--bg2); border: 1px solid var(--b2); border-radius: 20px;
+      padding: 6px 14px; font-family: 'Roboto Mono', monospace;
+      font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--t2); cursor: pointer; white-space: nowrap;
+      transition: all .15s;
+    }
+    .theme-btn:hover { background: var(--bg3); color: var(--t); }
 
     /* ── Hero ── */
-    .hero { padding: 80px 0 56px; border-bottom: 1px solid var(--divider); }
-    .eyebrow {
-      font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-      color: var(--text3); margin-bottom: 24px;
-    }
-    .hero-title {
-      font-family: var(--mono);
-      font-size: 56px; font-weight: 500;
-      letter-spacing: -0.02em; line-height: 1;
-      color: var(--text); margin-bottom: 24px;
-    }
-    .hero-sub {
-      font-size: 13px; color: var(--text2);
-      line-height: 1.6; max-width: 460px;
-      margin-bottom: 40px;
-    }
-    .hero-sub em { font-style: normal; color: var(--text3); }
-    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .eyebrow { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--t3); margin-bottom: .5rem; }
+    h1 { font-family: 'Raleway', sans-serif; font-size: 52px; font-weight: 300; letter-spacing: -2px; line-height: 1; margin-bottom: .75rem; }
+    .subtitle { font-size: 12px; color: var(--t2); line-height: 1.6; max-width: 480px; margin-bottom: 1.75rem; }
+    .div { border: none; border-top: 1px solid var(--b); margin: 2.25rem 0; }
+    .sec { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--t3); margin-bottom: 1.1rem; }
 
     /* ── Buttons ── */
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
     .btn {
-      display: inline-block;
-      padding: 6px 12px;
-      font-family: var(--sans); font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-      border-radius: 0; cursor: pointer;
-      border: 1px solid var(--border);
-      background: transparent; color: var(--text);
-      transition: border-color 0.1s;
+      display: inline-block; padding: 7px 16px;
+      font-family: 'Roboto Mono', monospace; font-size: 10px;
+      letter-spacing: .1em; text-transform: uppercase;
+      border: 1px solid var(--b2); background: transparent; color: var(--t2);
+      cursor: pointer; transition: all .15s;
     }
-    .btn:hover { border-color: var(--text2); }
-    .btn-primary {
-      background: var(--invertBg); color: var(--invertText);
-      border-color: var(--invertBg);
-    }
-    .btn-primary:hover { opacity: 0.9; }
-    .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
-
-    /* ── Section ── */
-    .section { padding: 48px 0; border-bottom: 1px solid var(--divider); }
-    .section:last-child { border-bottom: none; }
-    .sec {
-      font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-      color: var(--text3); margin-bottom: 24px;
-    }
+    .btn:hover { color: var(--t); border-color: var(--t3); }
+    .btn-primary { background: var(--t); color: var(--bg); border-color: var(--t); }
+    .btn-primary:hover { opacity: .85; }
 
     /* ── Download cards ── */
-    .dl-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 8px; max-width: 560px;
-    }
-    .dl-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      padding: 20px;
-    }
-    .dl-name {
-      font-family: var(--mono); font-size: 16px; font-weight: 500;
-      letter-spacing: -0.02em; color: var(--text); margin-bottom: 4px;
-    }
-    .dl-meta { font-size: 11px; color: var(--text3); margin-bottom: 20px; }
+    .dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--b); border: 1px solid var(--b); margin-bottom: 0; }
+    .dl-card { background: var(--bg2); padding: 1.25rem 1.5rem; }
+    .dl-name { font-size: 14px; color: var(--t); margin-bottom: .3rem; }
+    .dl-meta { font-size: 11px; color: var(--t2); margin-bottom: 1.1rem; line-height: 1.5; }
 
     /* ── Steps ── */
-    .steps-list {
-      border: 1px solid var(--border); max-width: 620px;
-      display: flex; flex-direction: column;
-    }
-    .step-row {
-      display: flex; gap: 20px; padding: 16px;
-      border-bottom: 1px solid var(--divider);
-    }
+    .steps-list { border: 1px solid var(--b); display: flex; flex-direction: column; }
+    .step-row { display: flex; gap: 20px; padding: 14px 18px; border-bottom: 1px solid var(--b); background: var(--bg2); }
     .step-row:last-child { border-bottom: none; }
-    .step-n {
-      font-family: var(--mono); font-size: 11px; font-weight: 500;
-      color: var(--text3); min-width: 24px; padding-top: 1px; flex-shrink: 0;
-    }
-    .step-title {
-      font-size: 13px; font-weight: 500; color: var(--text);
-      margin-bottom: 4px; letter-spacing: -0.02em;
-    }
-    .step-desc { font-size: 11px; color: var(--text2); line-height: 1.55; }
+    .step-n { font-size: 10px; color: var(--t3); min-width: 20px; padding-top: 2px; flex-shrink: 0; }
+    .step-title { font-size: 13px; color: var(--t); margin-bottom: 3px; }
+    .step-desc { font-size: 11px; color: var(--t2); line-height: 1.55; }
     .step-note {
-      font-size: 10px; color: var(--text3); margin-top: 6px;
-      padding-left: 10px; border-left: 1px solid var(--border); line-height: 1.5;
+      font-size: 10px; color: var(--t3); margin-top: 6px; line-height: 1.5;
+      padding-left: 10px; border-left: 1px solid var(--b);
     }
-    code {
-      font-family: var(--mono); font-size: 11px;
-      background: var(--elevated); padding: 1px 4px;
-    }
-
-    /* ── What it reads ── */
-    .reads-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 8px;
-    }
-    .reads-card {
-      background: var(--surface); border: 1px solid var(--border); padding: 16px;
-    }
-    .reads-label {
-      font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-      color: var(--text3); margin-bottom: 8px;
-    }
-    .reads-desc { font-size: 12px; color: var(--text2); line-height: 1.55; }
+    code { font-family: 'Roboto Mono', monospace; font-size: 10px; background: var(--bg3); padding: 1px 5px; }
 
     /* ── Req list ── */
-    .req-list {
-      border: 1px solid var(--border); max-width: 460px;
-      display: flex; flex-direction: column;
-    }
-    .req-row {
-      display: flex; align-items: baseline; gap: 12px;
-      padding: 9px 12px; border-bottom: 1px solid var(--divider);
-      font-size: 12px;
-    }
+    .req-list { border: 1px solid var(--b); display: flex; flex-direction: column; max-width: 520px; }
+    .req-row { display: flex; align-items: baseline; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--b); font-size: 11px; background: var(--bg2); }
     .req-row:last-child { border-bottom: none; }
-    .req-check { color: var(--positive); font-size: 11px; }
-    .req-text  { color: var(--text2); }
+    .req-check { color: var(--green); font-size: 10px; }
+    .req-text { color: var(--t2); }
+
+    /* ── Links block ── */
+    .links-block { border: 1px solid var(--b); display: flex; flex-direction: column; max-width: 360px; }
+    .link-row { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-bottom: 1px solid var(--b); background: var(--bg2); }
+    .link-row:last-child { border-bottom: none; }
+    .link-label { font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--t3); }
+    .link-val { font-size: 11px; color: var(--t2); text-decoration: underline; transition: color .1s; }
+    .link-val:hover { color: var(--t); }
 
     /* ── Footer ── */
-    .site-footer { padding: 32px 0; border-top: 1px solid var(--divider); }
-    .footer-inner {
-      display: flex; align-items: center;
-      justify-content: space-between; flex-wrap: wrap; gap: 16px;
-    }
-    .footer-logo img { height: 11px; opacity: 0.5; }
+    .site-footer { border-top: 1px solid var(--b); padding: 2rem 0; }
+    .footer-inner { max-width: 760px; margin: 0 auto; padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
     .footer-links { display: flex; gap: 24px; }
-    .footer-links a {
-      font-size: 11px; font-weight: 500;
-      letter-spacing: -0.04em; text-transform: uppercase;
-      color: var(--text3); transition: color 0.1s;
-    }
-    .footer-links a:hover { color: var(--text2); }
-    .footer-meta { font-size: 11px; color: var(--text3); }
+    .footer-links a { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--t3); transition: color .1s; }
+    .footer-links a:hover { color: var(--t2); }
+    .footer-meta { font-size: 10px; color: var(--t3); letter-spacing: .1em; }
 
     @media (max-width: 600px) {
-      .hero-title { font-size: 36px; }
+      h1 { font-size: 36px; }
+      .pg { padding: 2rem 1.25rem 4rem; }
     }
   </style>
 </head>
 <body>
 
-  <header class="site-nav">
-    <div class="container">
-      <div class="nav-logo"><img src="spec-ops-logo.png" alt="SPEC-OPS"></div>
-      <nav class="nav-links">
-        <a href="/">Z-Kit Guide</a>
-        <a href="/clip-review" class="active">Clip Review</a>
-      </nav>
-    </div>
-  </header>
+<div class="pg">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <nav class="nav-links">
+      <a href="/">Z-Kit Guide</a>
+      <a href="/clip-review" class="active">Clip Review</a>
+    </nav>
+    <button class="theme-btn" id="theme-btn">Light mode</button>
+  </div>
 
   <!-- Hero -->
-  <section class="hero">
-    <div class="container">
-      <p class="eyebrow">Post-shift tool</p>
-      <h1 class="hero-title">Clip<br>Review</h1>
-      <p class="hero-sub">
-        Plug in the ZEDREC card after your shift . tool auto-detects the drive , lists all clips , and scores each one active or idle using IMU data from the camera . play footage directly in the browser . no install .
-      </p>
-      <div class="btn-row">
-        <a href="https://github.com/Kawwshall/specops-clip-review/releases/latest/download/SPEC-OPS-Clip-Review-win.exe" class="btn btn-primary">Download . Windows</a>
-        <a href="/" class="btn">Z-Kit Guide →</a>
-      </div>
-    </div>
-  </section>
+  <p class="eyebrow">Post-shift tool</p>
+  <h1>Clip<br>Review</h1>
+  <p class="subtitle">Plug in the ZEDREC card after your shift . tool auto-detects the drive , lists all clips with duration , plays footage directly in the browser . no install .</p>
+  <div class="btn-row">
+    <a href="https://github.com/Kawwshall/specops-clip-review/releases/latest/download/SPEC-OPS-Clip-Review-win.exe" class="btn btn-primary">Download . Windows</a>
+    <a href="https://github.com/Kawwshall/specops-clip-review/releases/latest/download/ClipReview-mac.dmg" class="btn">Download . macOS</a>
+  </div>
+
+  <div class="div"></div>
 
   <!-- Download -->
-  <section class="section">
-    <div class="container">
-      <p class="sec">download</p>
-      <div class="dl-grid">
-
-        <div class="dl-card">
-          <div class="dl-name">Windows</div>
-          <div class="dl-meta">x64 · single .exe · no install</div>
-          <a href="https://github.com/Kawwshall/specops-clip-review/releases/latest/download/SPEC-OPS-Clip-Review-win.exe" class="btn btn-primary">Download .exe</a>
-        </div>
-
-        <div class="dl-card">
-          <div class="dl-name">macOS</div>
-          <div class="dl-meta">Apple Silicon + Intel · disk image</div>
-          <a href="https://github.com/Kawwshall/specops-clip-review/releases/latest/download/ClipReview-mac.dmg" class="btn btn-primary">Download .dmg</a>
-        </div>
-
-      </div>
+  <p class="sec">download</p>
+  <div class="dl-grid" style="margin-bottom:2.25rem">
+    <div class="dl-card">
+      <div class="dl-name">Windows</div>
+      <div class="dl-meta">x64 · single .exe · no install</div>
+      <a href="https://github.com/Kawwshall/specops-clip-review/releases/latest/download/SPEC-OPS-Clip-Review-win.exe" class="btn btn-primary">Download .exe</a>
     </div>
-  </section>
+    <div class="dl-card">
+      <div class="dl-name">macOS</div>
+      <div class="dl-meta">Apple Silicon + Intel · disk image</div>
+      <a href="https://github.com/Kawwshall/specops-clip-review/releases/latest/download/ClipReview-mac.dmg" class="btn btn-primary">Download .dmg</a>
+    </div>
+  </div>
+
+  <div class="div"></div>
 
   <!-- Steps macOS -->
-  <section class="section">
-    <div class="container">
-      <p class="sec">how to use . macOS</p>
-      <div class="steps-list">
-        <div class="step-row">
-          <span class="step-n">01</span>
-          <div>
-            <div class="step-title">Download and install</div>
-            <div class="step-desc">Download <code>ClipReview-mac.dmg</code> . double-click it . a window opens showing the app and an Applications arrow . drag <code>ClipReview</code> onto the <strong>Applications</strong> arrow . then eject the DMG .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">02</span>
-          <div>
-            <div class="step-title">Open Clip Review</div>
-            <div class="step-desc">Open Applications . double-click <code>ClipReview</code> . first launch takes ~30 seconds to finish setup . browser opens automatically every time after that .</div>
-            <div class="step-note">If macOS shows "unverified developer" . open System Settings → Privacy &amp; Security → scroll down → click Open Anyway . enter your password . this is a one-time step — never appears again .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">03</span>
-          <div>
-            <div class="step-title">Insert the ZEDREC card</div>
-            <div class="step-desc">Plug in the card reader with the ZEDREC SD card . the volume appears in the Drive Selector dropdown automatically .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">04</span>
-          <div>
-            <div class="step-title">Select drive and review</div>
-            <div class="step-desc">Pick the ZEDREC volume . all clips load . check active and idle hours in the summary bar . click any clip to play it .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">05</span>
-          <div>
-            <div class="step-title">Submit handover</div>
-            <div class="step-desc">Once reviewed go to <a href="https://spec-ops.best/" target="_blank" style="color:var(--text2);text-decoration:underline">spec-ops.best</a> to submit your shift handover .</div>
-          </div>
-        </div>
+  <p class="sec">how to use . macOS</p>
+  <div class="steps-list" style="margin-bottom:2.25rem">
+    <div class="step-row">
+      <span class="step-n">01</span>
+      <div>
+        <div class="step-title">Download and install</div>
+        <div class="step-desc">Download <code>ClipReview-mac.dmg</code> . double-click it . drag <code>ClipReview</code> onto the <strong>Applications</strong> arrow . eject the DMG .</div>
       </div>
     </div>
-  </section>
+    <div class="step-row">
+      <span class="step-n">02</span>
+      <div>
+        <div class="step-title">Open Clip Review</div>
+        <div class="step-desc">Open Applications . double-click <code>ClipReview</code> . first launch takes ~30 sec to finish setup . browser opens automatically every time after .</div>
+        <div class="step-note">If macOS shows "unverified developer" . open System Settings → Privacy &amp; Security → scroll down → click Open Anyway . one-time step .</div>
+      </div>
+    </div>
+    <div class="step-row">
+      <span class="step-n">03</span>
+      <div>
+        <div class="step-title">Insert the ZEDREC card</div>
+        <div class="step-desc">Plug in the card reader . the volume appears in the drive selector automatically .</div>
+      </div>
+    </div>
+    <div class="step-row">
+      <span class="step-n">04</span>
+      <div>
+        <div class="step-title">Review clips</div>
+        <div class="step-desc">Select the ZEDREC volume . all clips load with durations . click any clip to play it .</div>
+      </div>
+    </div>
+    <div class="step-row">
+      <span class="step-n">05</span>
+      <div>
+        <div class="step-title">Submit handover</div>
+        <div class="step-desc">Once reviewed go to <a href="https://spec-ops.best/" target="_blank" style="color:var(--t2);text-decoration:underline">spec-ops.best</a> to submit your shift handover .</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="div"></div>
 
   <!-- Steps Windows -->
-  <section class="section">
-    <div class="container">
-      <p class="sec">how to use . Windows</p>
-      <div class="steps-list">
-        <div class="step-row">
-          <span class="step-n">01</span>
-          <div>
-            <div class="step-title">Download the .exe</div>
-            <div class="step-desc">Download <code>SPEC-OPS-Clip-Review-win.exe</code> . save it anywhere . Desktop works fine .</div>
-            <div class="step-note">Windows may show a SmartScreen warning . click "More info" then "Run anyway" . this is normal for unsigned apps .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">02</span>
-          <div>
-            <div class="step-title">Double-click and go</div>
-            <div class="step-desc">Double-click the .exe . browser opens automatically . a Desktop shortcut is created for next time .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">03</span>
-          <div>
-            <div class="step-title">Insert the ZEDREC card</div>
-            <div class="step-desc">Plug in the card reader with the ZEDREC SD card . the drive appears in the Drive Selector dropdown automatically .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">04</span>
-          <div>
-            <div class="step-title">Select drive and review</div>
-            <div class="step-desc">Pick the ZEDREC drive . all clips load . check active and idle hours in the summary bar . click any clip to play it .</div>
-          </div>
-        </div>
-        <div class="step-row">
-          <span class="step-n">05</span>
-          <div>
-            <div class="step-title">Submit handover</div>
-            <div class="step-desc">Once reviewed go to <a href="https://spec-ops.best/" target="_blank" style="color:var(--text2);text-decoration:underline">spec-ops.best</a> to submit your shift handover .</div>
-          </div>
-        </div>
+  <p class="sec">how to use . Windows</p>
+  <div class="steps-list" style="margin-bottom:2.25rem">
+    <div class="step-row">
+      <span class="step-n">01</span>
+      <div>
+        <div class="step-title">Download the .exe</div>
+        <div class="step-desc">Download <code>SPEC-OPS-Clip-Review-win.exe</code> . save it anywhere . Desktop works fine .</div>
+        <div class="step-note">Windows may show a SmartScreen warning . click "More info" then "Run anyway" . normal for unsigned apps .</div>
       </div>
     </div>
-  </section>
+    <div class="step-row">
+      <span class="step-n">02</span>
+      <div>
+        <div class="step-title">Double-click and go</div>
+        <div class="step-desc">Double-click the .exe . browser opens automatically .</div>
+      </div>
+    </div>
+    <div class="step-row">
+      <span class="step-n">03</span>
+      <div>
+        <div class="step-title">Insert the ZEDREC card</div>
+        <div class="step-desc">Plug in the card reader . the drive appears in the selector automatically .</div>
+      </div>
+    </div>
+    <div class="step-row">
+      <span class="step-n">04</span>
+      <div>
+        <div class="step-title">Review clips</div>
+        <div class="step-desc">Select the ZEDREC drive . all clips load with durations . click any clip to play it .</div>
+      </div>
+    </div>
+    <div class="step-row">
+      <span class="step-n">05</span>
+      <div>
+        <div class="step-title">Submit handover</div>
+        <div class="step-desc">Once reviewed go to <a href="https://spec-ops.best/" target="_blank" style="color:var(--t2);text-decoration:underline">spec-ops.best</a> to submit your shift handover .</div>
+      </div>
+    </div>
+  </div>
 
-  <!-- What it reads -->
-  <section class="section">
-    <div class="container">
-      <p class="sec">what it reads</p>
-      <div class="reads-grid">
-        <div class="reads-card">
-          <div class="reads-label">Drive detection</div>
-          <div class="reads-desc">Scans connected drives for the ZEDREC volume automatically . no manual path needed .</div>
-        </div>
-        <div class="reads-card">
-          <div class="reads-label">Total hours</div>
-          <div class="reads-desc">Summary bar shows real total recorded hours across all clips . confirms a full shift was captured .</div>
-        </div>
-        <div class="reads-card">
-          <div class="reads-label">Clip list</div>
-          <div class="reads-desc">All clips indexed by time and duration . sorted chronologically . click any to play instantly .</div>
-        </div>
-        <div class="reads-card">
-          <div class="reads-label">Video playback</div>
-          <div class="reads-desc">Converts MCAP clips on the fly . plays directly in the browser tab . no extra software .</div>
-        </div>
-        <div class="reads-card">
-          <div class="reads-label">H.265 + H.264</div>
-          <div class="reads-desc">Tries fast stream-copy first . automatically re-encodes to H.264 if the browser can't decode H.265 .</div>
-        </div>
-        <div class="reads-card">
-          <div class="reads-label">No install</div>
-          <div class="reads-desc">FFmpeg and the server are fully bundled . Windows: run the .exe . macOS: drag .app to Applications and double-click .</div>
-        </div>
-      </div>
-    </div>
-  </section>
+  <div class="div"></div>
 
   <!-- Requirements -->
-  <section class="section">
-    <div class="container">
-      <p class="sec">requirements</p>
-      <div class="req-list">
-        <div class="req-row"><span class="req-check">✓</span><span class="req-text">Windows 10 or 11 (64-bit) · or · macOS 12 Monterey or later (Apple Silicon + Intel)</span></div>
-        <div class="req-row"><span class="req-check">✓</span><span class="req-text">ZEDREC SD card with MCAP recordings</span></div>
-        <div class="req-row"><span class="req-check">✓</span><span class="req-text">Chrome, Edge, Firefox, or Safari</span></div>
-        <div class="req-row"><span class="req-check">✓</span><span class="req-text">~200 MB free disk space for converted clip cache</span></div>
-      </div>
-    </div>
-  </section>
+  <p class="sec">requirements</p>
+  <div class="req-list" style="margin-bottom:2.25rem">
+    <div class="req-row"><span class="req-check">✓</span><span class="req-text">Windows 10 or 11 (64-bit) · or · macOS 12 Monterey or later</span></div>
+    <div class="req-row"><span class="req-check">✓</span><span class="req-text">ZEDREC SD card with MCAP recordings</span></div>
+    <div class="req-row"><span class="req-check">✓</span><span class="req-text">Chrome, Edge, Firefox, or Safari</span></div>
+  </div>
+
+  <div class="div"></div>
 
   <!-- Links -->
-  <section class="section">
-    <div class="container">
-      <p class="sec">links</p>
-      <div class="req-list" style="max-width:420px">
-        <div class="req-row" style="gap:0; flex-direction:column; align-items:flex-start; padding:12px 12px;">
-          <span style="font-size:11px;font-weight:500;letter-spacing:-0.04em;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Fields app</span>
-          <a href="https://spec-ops.best/" target="_blank" style="font-size:12px;color:var(--text2);text-decoration:underline">spec-ops.best</a>
-        </div>
-        <div class="req-row" style="gap:0; flex-direction:column; align-items:flex-start; padding:12px 12px; border-bottom:none">
-          <span style="font-size:11px;font-weight:500;letter-spacing:-0.04em;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Z-Kit Guide</span>
-          <a href="/" style="font-size:12px;color:var(--text2);text-decoration:underline">Assembly, packing, field checks</a>
-        </div>
-      </div>
+  <p class="sec">links</p>
+  <div class="links-block">
+    <div class="link-row">
+      <span class="link-label">Fields app</span>
+      <a class="link-val" href="https://spec-ops.best/" target="_blank">spec-ops.best</a>
     </div>
-  </section>
-
-  <footer class="site-footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-logo"><img src="spec-ops-logo.png" alt="SPEC-OPS"></div>
-        <nav class="footer-links">
-          <a href="/">Z-Kit Guide</a>
-          <a href="/clip-review">Clip Review</a>
-        </nav>
-        <div class="footer-meta">spec-ops.best</div>
-      </div>
+    <div class="link-row">
+      <span class="link-label">Z-Kit Guide</span>
+      <a class="link-val" href="/">Assembly, packing, field checks</a>
     </div>
-  </footer>
+  </div>
 
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <nav class="footer-links">
+      <a href="/">Z-Kit Guide</a>
+      <a href="/clip-review">Clip Review</a>
+    </nav>
+    <span class="footer-meta">spec-ops.best</span>
+  </div>
+</footer>
+
+<script>
+  const btn = document.getElementById('theme-btn');
+  const saved = localStorage.getItem('theme');
+  let dark = saved !== 'light';
+  if (!dark) document.body.classList.add('light');
+  btn.textContent = dark ? 'Light mode' : 'Dark mode';
+  btn.onclick = () => {
+    dark = !dark;
+    document.body.classList.toggle('light', !dark);
+    btn.textContent = dark ? 'Light mode' : 'Dark mode';
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+  };
+</script>
 </body>
 </html>
