@@ -1,4 +1,4 @@
-# SPEC-OPS Clip Review
+# zkit
 
 Post-shift tool for reviewing MCAP footage from ZEDREC cards.
 Auto-detects the drive, lists all clips with duration, plays video directly in the browser.
