@@ -41,27 +41,36 @@
     .container { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
     .pg        { max-width: 760px;  margin: 0 auto; padding: 3rem 16px 5rem; }
 
-    /* ── Nav ── */
-    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; }
-    .nav-links { display: flex; gap: 24px; }
-    .nav-links a {
+    /* ── Sticky top bar (same as guide page) ── */
+    .site-topbar {
+      position: sticky; top: 0; z-index: 300;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+    }
+    .tb-inner {
+      max-width: 1100px; margin: 0 auto; padding: 0 16px;
+      display: flex; align-items: center; justify-content: space-between; height: 48px;
+    }
+    .tb-left { display: flex; align-items: center; gap: 32px; }
+    .tb-logo img { height: 11px; display: block; filter: none; }
+    body.light .tb-logo img { filter: invert(1); }
+    .tb-links { display: flex; gap: 24px; }
+    .tb-links a {
       font-size: 11px; font-weight: 500;
       letter-spacing: -0.04em; text-transform: uppercase;
       color: var(--text2); padding-bottom: 2px;
-      border-bottom: 1px solid transparent; transition: color .1s, border-color .1s;
+      border-bottom: 1px solid transparent; text-decoration: none;
+      transition: color .1s, border-color .1s;
     }
-    .nav-links a:hover { color: var(--text); }
-    .nav-links a.active { color: var(--text); border-bottom: 1px solid var(--text); }
-
-    /* ── Theme toggle (default button variant) ── */
-    .theme-btn {
+    .tb-links a:hover { color: var(--text); }
+    .tb-links a.active { color: var(--text); border-bottom: 1px solid var(--text); }
+    .tb-theme-btn {
       font-family: var(--sans); font-size: 11px; font-weight: 500;
       letter-spacing: -0.04em; text-transform: uppercase;
       padding: 6px 12px; border-radius: 0;
       background: transparent; color: var(--text2);
       border: 1px solid var(--border); cursor: pointer; transition: all .15s;
     }
-    .theme-btn:hover { color: var(--text); border-color: var(--text2); }
+    .tb-theme-btn:hover { color: var(--text); border-color: var(--text2); }
 
     /* ── Hero ── */
     .eyebrow {
@@ -195,15 +204,20 @@
 </head>
 <body>
 
-<div class="pg">
-
-  <div class="topbar">
-    <nav class="nav-links">
-      <a href="/">Z-Kit Guide</a>
-      <a href="/clip-review" class="active">Clip Review</a>
-    </nav>
-    <button class="theme-btn" id="theme-btn">Light</button>
+<header class="site-topbar">
+  <div class="tb-inner">
+    <div class="tb-left">
+      <div class="tb-logo"><img src="spec-ops-logo.png" alt="SPEC-OPS"></div>
+      <nav class="tb-links">
+        <a href="/">Z-Kit Guide</a>
+        <a href="/clip-review" class="active">Clip Review</a>
+      </nav>
+    </div>
+    <button class="tb-theme-btn" id="theme-btn">Light</button>
   </div>
+</header>
+
+<div class="pg">
 
   <p class="eyebrow">Post-shift tool</p>
   <h1>Clip<br>Review</h1>
