@@ -258,21 +258,48 @@
     });
   }
 
+  function resetToIdle() {
+    lastDetectedPath = null;
+    state.root = '';
+    state.items = [];
+    fetch('/api/clear-cache', { cache: 'no-store' }).catch(() => {});
+    els.statusDot.className = 'status-dot';
+    els.cardLabel.textContent = 'Waiting for card…';
+    els.cardLabel.className = 'card-sub';
+    els.summaryBar.classList.remove('visible');
+    els.idleState.classList.add('visible');
+    els.playerPane.classList.add('hidden');
+    els.clipsPane.classList.add('hidden');
+    setStatus('Card removed . converted files cleared .');
+  }
+
   async function pollDetect() {
     try {
-      // Run both requests in parallel
       const [detectRes, drivesRes] = await Promise.all([
         fetch('/api/auto-detect', { cache: 'no-store' }),
         fetch('/api/list-drives',  { cache: 'no-store' }),
       ]);
       const { results } = await detectRes.json();
       const { drives }  = await drivesRes.json();
+      const drivePaths  = (drives || []).map(d => d.path);
 
-      // Update drive picker whenever no clip is being shown
+      // Update drive picker only while on idle screen
       if (els.idleState.classList.contains('visible')) {
         renderDrivePicker(drives || []);
       }
 
+      // If the user is already viewing a drive, only reset when
+      // that drive is physically gone — never because auto-detect
+      // returned 0 (it only searches known folder names)
+      if (lastDetectedPath && state.root) {
+        const stillMounted = drivePaths.some(p =>
+          lastDetectedPath.startsWith(p) || p === lastDetectedPath
+        );
+        if (!stillMounted) resetToIdle();
+        return;
+      }
+
+      // Auto-detect: jump straight to viewer for a new card
       if (results && results.length > 0) {
         const r = results[0];
         if (r.path !== lastDetectedPath) {
@@ -281,22 +308,6 @@
           els.cardLabel.innerHTML = `<span class="card-label">${r.label}</span> <span class="card-sub">— scanning…</span>`;
           setStatus(`Auto-detected ${r.label} — scanning ${r.mcap_count} clips…`);
           await scanPath(r.path);
-        }
-      } else {
-        // Card removed / nothing auto-detected
-        if (lastDetectedPath) {
-          lastDetectedPath = null;
-          state.root = '';
-          state.items = [];
-          fetch('/api/clear-cache', { cache: 'no-store' }).catch(() => {});
-          els.statusDot.className = 'status-dot';
-          els.cardLabel.textContent = 'Waiting for card…';
-          els.cardLabel.className = 'card-sub';
-          els.summaryBar.classList.remove('visible');
-          els.idleState.classList.add('visible');
-          els.playerPane.classList.add('hidden');
-          els.clipsPane.classList.add('hidden');
-          setStatus('Card removed . converted files cleared .');
         }
       }
     } catch {
