@@ -635,7 +635,22 @@ def list_recordings(root_path: str):
     root = resolve_root(root_path)
     if not root:
         raise ValueError(f"could not access folder: {root_path}")
-    files = sorted(root.rglob("*.mcap"))
+
+    # rglob can raise PermissionError on restricted subdirs (e.g. System Volume
+    # Information on Windows-formatted SD cards).  Collect files defensively.
+    files: list[Path] = []
+    try:
+        for f in root.rglob("*.mcap"):
+            # Skip partially-written files (recorder still active)
+            if f.suffix.lower() == '.mcap' and not f.name.endswith('.mcap.active'):
+                files.append(f)
+    except (PermissionError, OSError):
+        # Fallback: walk manually so one bad dir doesn't kill the whole scan
+        for dirpath, dirnames, filenames in os.walk(root, onerror=lambda e: None):
+            for fname in filenames:
+                if fname.endswith('.mcap') and not fname.endswith('.mcap.active'):
+                    files.append(Path(dirpath) / fname)
+    files = sorted(files)
 
     # Build base items (name/size only — fast, no I/O beyond stat)
     base_items: list[dict] = []

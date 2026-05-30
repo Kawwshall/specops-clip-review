@@ -327,6 +327,12 @@
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       state.items = (data.items || []).sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+      if (state.items.length === 0) {
+        // No MCAP files found — stay on idle, show clear message
+        state.root = '';
+        setStatus(`No MCAP clips found in ${(data.root || root).split('/').filter(Boolean).pop() || root} . try selecting a subfolder .`, 'warn');
+        return;
+      }
       renderAll(state.items, data.root || root);
       els.statusDot.className = 'status-dot live';
       const det = state.items[0] && state.items[0].startMs
@@ -336,6 +342,7 @@
         (det ? ` <span class="card-sub">. ${state.items.length} clips, ${det}</span>` : ` <span class="card-sub">. ${state.items.length} clips</span>`);
       setStatus(`${state.items.length} clips loaded.`, 'ok');
     } catch (e) {
+      state.root = '';
       setStatus(e.message, 'warn');
     }
   }
